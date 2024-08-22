@@ -32,21 +32,35 @@ primary_axis_index=bblen.index(max(bblen))
 popped_bblen=bblen[0:primary_axis_index]+bblen[primary_axis_index+1:]
 secondary_axis_index=bblen.index(max(popped_bblen))
 tertiary_axis_index=3-(primary_axis_index+secondary_axis_index)
-print(tertiary_axis)
 
 
 
 rot=bounding_box.R
 cent= bounding_box.center 
-normal=bounding_box.R[:,0]##I do not think this is the principal axis
+
+primary_axis=bounding_box.R[:,primary_axis_index]
+secondary_axis=bounding_box.R[:,secondary_axis_index]
+tertiary_axis=bounding_box.R[:,tertiary_axis_index]
 
 #plane equation is:  normal * ([x,y,z]-cent)=0 where * is the dot product and x,y,z are coordiantes on the plane
 #since these are really just the plane normal to the secondary axis we just fill in plane along primary(u) and tertiary(v) axis
 
 plane_points=[]
 plane_size=400
+
+#loop through all the options 
+secondary_axis_length=bblen[secondary_axis_index]
+probe_width=66.22 #unit in mm like the rest of the script
+# probe_pass_area is secondary_axis_width - 1 probe width becuase there is extra half probe length covered on both the 1st and last passes
+probe_pass_area=secondary_axis_length-probe_width
+# num passes is probe_pass_area/probe_width +1 (+1 accounts for the fencepost-nature of scanning the probe_pass area)
+num_passes= probe_pass_area/probe_width
+
+print(num_passes, probe_pass_area)
+
 for u in np.linspace(-plane_size,plane_size,100):
     for v in np.linspace(-plane_size/2,plane_size/2,int(100/2)):
+        
         #creates points on plane along primary axis with tertiary for depth
         point_on_plane=cent+u*rot[:,primary_axis_index]+v*rot[:,tertiary_axis_index]
         plane_points.append(point_on_plane)
