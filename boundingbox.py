@@ -23,8 +23,8 @@ bounding_box=plane.get_oriented_bounding_box()
 
 #min_bounding_box=plane.get_minimal_oriented_bounding_box()
 
-#bounding_box.color=[1,0,0]
-print(bounding_box.color)
+bounding_box.color=[1,0,0]
+
 #min_bounding_box.color=(0,1,0)
 #o3d.visualization.draw_geometries([plane,bounding_box,min_bounding_box])
 
@@ -78,3 +78,8 @@ for i in j:
             #creates points on plane along primary axis with tertiary for depth
             point_on_plane=offset+cent+u*rot[:,primary_axis_index]+v*rot[:,tertiary_axis_index]
             plane_points.append(point_on_plane)
+    plane_pcd=o3d.geometry.PointCloud()
+    plane_pcd.points=o3d.utility.Vector3dVector(plane_points)
+
+    plane_pcd.paint_uniform_color([0,0,1])
+    o3d.visualization.draw_geometries([plane,bounding_box, plane_pcd])
