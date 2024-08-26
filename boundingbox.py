@@ -61,6 +61,7 @@ plane_size=400
 
 #loop through all the options 
 secondary_axis_length=bblen[secondary_axis_index]
+tertiary_axis_length=bblen[tertiary_axis_index]
 probe_width=66.22 #unit in mm like the rest of the script
 # probe_pass_area is secondary_axis_width - 1 probe width becuase there is extra half probe length covered on both the 1st and last passes
 probe_pass_area=secondary_axis_length-probe_width
@@ -84,7 +85,7 @@ for i in j:
         off=off+scan_lane_width
     offset=rot[:,secondary_axis_index]*off
     for u in np.linspace(-plane_size,plane_size,100):
-        for v in np.linspace(-plane_size/2,plane_size/2,int(100/2)):
+        for v in np.linspace(-plane_size/2,plane_size/2,tertiary_axis_length):
             
             #creates points on plane along primary axis with tertiary for depth
             point_on_plane=offset+cent+ u*rot[:,primary_axis_index]+v*rot[:,tertiary_axis_index]
