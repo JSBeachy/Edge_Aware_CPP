@@ -17,7 +17,7 @@ for i in range(plane_nums):
 print(plane_int)
 '''
 plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
-o3d.visualization.draw_geometries([plane])
+#o3d.visualization.draw_geometries([plane])
 
 bounding_box=plane.get_oriented_bounding_box()
 
@@ -71,7 +71,7 @@ probe_pass_area=secondary_axis_length-probe_width
 
 num_interior_passes= -int(-probe_pass_area//probe_width)
 scan_lane_width=probe_pass_area/num_interior_passes
-print(probe_width/2+scan_lane_width/2+scan_lane_width+scan_lane_width+scan_lane_width/2+probe_width/2,secondary_axis_length)
+#print(probe_width/2+scan_lane_width/2+scan_lane_width+scan_lane_width+scan_lane_width/2+probe_width/2,secondary_axis_length)
 j=[i for i in range(num_interior_passes+2)]
 off=0
 for i in j:
@@ -85,7 +85,7 @@ for i in j:
         off=off+scan_lane_width
     offset=rot[:,secondary_axis_index]*off
     for u in np.linspace(-plane_size,plane_size,100):
-        for v in np.linspace(-plane_size/2,plane_size/2,tertiary_axis_length):
+        for v in np.linspace(-int(tertiary_axis_length+10),int(tertiary_axis_length+10),int(tertiary_axis_length)):
             
             #creates points on plane along primary axis with tertiary for depth
             point_on_plane=offset+cent+ u*rot[:,primary_axis_index]+v*rot[:,tertiary_axis_index]
