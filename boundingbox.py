@@ -57,9 +57,8 @@ tertiary_axis=bounding_box.R[:,tertiary_axis_index]
 #since these are really just the plane normal to the secondary axis we just fill in plane along primary(u) and tertiary(v) axis
 
 plane_points=[]
-plane_size=400
-
 #loop through all the options 
+primary_axis_length=bblen[primary_axis_index]
 secondary_axis_length=bblen[secondary_axis_index]
 tertiary_axis_length=bblen[tertiary_axis_index]
 probe_width=66.22 #unit in mm like the rest of the script
@@ -84,9 +83,8 @@ for i in j:
     else:
         off=off+scan_lane_width
     offset=rot[:,secondary_axis_index]*off
-    for u in np.linspace(-plane_size,plane_size,100):
+    for u in np.linspace(-int(primary_axis_length/2+10),int(primary_axis_length/2 +10),100):
         for v in np.linspace(-int(tertiary_axis_length+10),int(tertiary_axis_length+10),int(tertiary_axis_length)):
-            
             #creates points on plane along primary axis with tertiary for depth
             point_on_plane=offset+cent+ u*rot[:,primary_axis_index]+v*rot[:,tertiary_axis_index]
             plane_points.append(point_on_plane)
