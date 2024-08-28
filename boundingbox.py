@@ -34,7 +34,7 @@ transformation=np.eye(4)
 transformation[:3,:3]=bounding_box.R
 transformation[:3, 3]=bounding_box.center
 frame.transform(transformation)
-o3d.visualization.draw_geometries([plane,bounding_box,frame])
+#o3d.visualization.draw_geometries([plane,bounding_box,frame])
 
 
 
@@ -48,7 +48,6 @@ tertiary_axis_index=3-(primary_axis_index+secondary_axis_index)
 
 rot=bounding_box.R
 cent= bounding_box.center 
-
 primary_axis=bounding_box.R[:,primary_axis_index]
 secondary_axis=bounding_box.R[:,secondary_axis_index]
 tertiary_axis=bounding_box.R[:,tertiary_axis_index]
@@ -68,6 +67,108 @@ probe_pass_area=secondary_axis_length-probe_width
 # num passes is probe_pass_area/probe_width rounded up for full, slightly overlapping coverage
 #TODO Can be used to enforce certain amount of overlap as well (future work)
 
+
+#define the primary and teriary axis and number of points along both
+u=rot[:,primary_axis_index]
+v=rot[:,tertiary_axis_index]
+num_u=int(primary_axis_length//10)
+num_v=int(tertiary_axis_length//1)
+range_u=np.linspace(-int(primary_axis_length/2)-10,int(primary_axis_length/2)+10,num_u )
+range_v=np.linspace(-int(tertiary_axis_length/2)-10,int(tertiary_axis_length/2+10),num_v)
+
+points=[]
+off=-secondary_axis_length/2+probe_width/2
+offset=rot[:,secondary_axis_index]*off
+for i in range_u:
+    for j in range_v:
+        point=i*u+j*v+offset+cent
+        points.append(point)
+points=np.array(points)
+
+# print(points)
+# point_cloud = o3d.geometry.PointCloud()  
+# point_cloud.points = o3d.utility.Vector3dVector(points)
+# o3d.visualization.draw_geometries([plane,bounding_box,frame,point_cloud])
+faces=[]
+for i in range(len(range_u)-1):
+    for j in range(len(range_v)-1):
+        idx1 = i * num_v + j
+        idx2 = i * num_v + (j + 1)
+        idx3 = (i + 1) * num_v + j
+        idx4 = (i + 1) * num_v + (j + 1)
+        #Form the two triangles from the one square
+        faces.append([idx1, idx2, idx3])
+        faces.append([idx2, idx4, idx3])
+faces = np.array(faces)
+
+#form o3d tensor geometry
+vertices_o3d = o3d.core.Tensor(points, dtype=o3d.core.Dtype.Float32)
+triangles_o3d = o3d.core.Tensor(faces, dtype=o3d.core.Dtype.Int32)
+mesh = o3d.t.geometry.TriangleMesh(vertices_o3d, triangles_o3d)
+
+#Ray Cast to test for intersection
+tensor_plane = o3d.t.geometry.TriangleMesh.from_legacy(plane)
+scene = o3d.t.geometry.RaycastingScene()
+tensor_cast_id = scene.add_triangles(tensor_plane)
+LocVec=[]
+for i in range(len(range_u)):
+    idx=i*num_v + len(range_v)-1
+    tertiary_vector=-1*rot[:,tertiary_axis_index]
+    LocVec.append(np.concatenate((points[idx],tertiary_vector)))
+LocVec=o3d.core.Tensor(np.array(LocVec).astype(np.float32))
+
+ans = scene.cast_rays(LocVec)
+#Distance to intersection from "start-point"
+#print(ans['t_hit'].numpy())
+#Geometric ID (whatever that means)
+#print(ans['geometry_ids'].numpy())
+#index of triangle hit
+#print(ans['primitive_ids'].numpy())
+#barycetnric coordinates of hit-points within hit-triangles
+print(ans['primitive_normals'].numpy())
+
+vis = o3d.visualization.Visualizer()
+vis.create_window()
+vis.add_geometry(plane)
+#vis.run()
+#vis.destroy_window()
+
+
+# Visualize rays
+raynp=LocVec.numpy()
+#print(raynp)
+for ray in raynp:
+    origin = ray[:3]
+    direction = ray[3:]
+    line_points = [origin, origin + direction * 30]  # Extend the ray for visualization
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(line_points),
+        lines=o3d.utility.Vector2iVector([[0, 1]])
+    )
+    line_set.paint_uniform_color([1, 0, 0])  # Red color for the rays
+    vis.add_geometry(line_set)
+
+# Render the scene
+vis.run()
+vis.destroy_window()
+
+
+
+
+
+
+
+
+
+
+
+'''Mesh Intersection attempt
+ans = mesh.boolean_intersection(tensor_plane)
+o3d.visualization.draw([{'name': 'intersection', 'geometry': ans}])
+'''
+
+
+''' Original plane formation
 num_interior_passes= -int(-probe_pass_area//probe_width)
 scan_lane_width=probe_pass_area/num_interior_passes
 #print(probe_width/2+scan_lane_width/2+scan_lane_width+scan_lane_width+scan_lane_width/2+probe_width/2,secondary_axis_length)
@@ -93,3 +194,4 @@ for i in j:
 
     plane_pcd.paint_uniform_color([0,0,1])
     o3d.visualization.draw_geometries([plane,bounding_box, plane_pcd])
+'''
