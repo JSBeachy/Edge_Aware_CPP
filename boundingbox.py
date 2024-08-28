@@ -88,7 +88,7 @@ points=np.array(points)
 # print(points)
 # point_cloud = o3d.geometry.PointCloud()  
 # point_cloud.points = o3d.utility.Vector3dVector(points)
-# o3d.visualization.draw_geometries([plane,bounding_box,frame,point_cloud])
+#o3d.visualization.draw_geometries([plane,bounding_box,frame,point_cloud])
 faces=[]
 for i in range(len(range_u)-1):
     for j in range(len(range_v)-1):
@@ -125,11 +125,32 @@ ans = scene.cast_rays(LocVec)
 #index of triangle hit
 #print(ans['primitive_ids'].numpy())
 #barycetnric coordinates of hit-points within hit-triangles
-print(ans['primitive_normals'].numpy())
+#print(ans['primitive_uvs'].numpy())
+#Normals of the hit trianges
+#print(ans['primitive_normals'].numpy())
 
 vis = o3d.visualization.Visualizer()
 vis.create_window()
 vis.add_geometry(plane)
+
+
+for i in range(len(range_u)):
+    if ans['geometry_ids'][i]==0:
+        dist=ans['t_hit'].numpy()[i]
+        delta=dist*tertiary_vector
+        onSurface=LocVec.numpy()[i][:3]+delta
+        pose=ans['primitive_normals'].numpy()[i]
+        print(onSurface,pose)
+        line_points = [onSurface, onSurface+pose*30]
+        line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(line_points),
+        lines=o3d.utility.Vector2iVector([[0, 1]]))
+        line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
+        vis.add_geometry(line_set)
+        
+
+
+
 #vis.run()
 #vis.destroy_window()
 
@@ -151,12 +172,6 @@ for ray in raynp:
 # Render the scene
 vis.run()
 vis.destroy_window()
-
-
-
-
-
-
 
 
 
