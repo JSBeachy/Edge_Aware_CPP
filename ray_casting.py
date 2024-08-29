@@ -1,7 +1,7 @@
 import open3d as o3d
 import numpy as np
 
-# Load a TriangleMesh and convert to .t geometry
+""" # Load a TriangleMesh and convert to .t geometry
 tensor_mesh = o3d.t.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
 legacy_mesh_converted=tensor_mesh.to_legacy()
 
@@ -13,9 +13,14 @@ o3d.visualization.draw_geometries([legacy_mesh_converted,point_cloud])
 
 # Create a scene and add the triangle mesh
 scene = o3d.t.geometry.RaycastingScene()
-tensor_id = scene.add_triangles(tensor_mesh)
+tensor_id = scene.add_triangles(tensor_mesh) """
 
-
+# Load mesh and convert to open3d.t.geometry.TriangleMesh
+cube = o3d.geometry.TriangleMesh.create_box().translate([0, 0, 0])
+cube = o3d.t.geometry.TriangleMesh.from_legacy(cube)
+# Create a scene and add the triangle mesh
+scene = o3d.t.geometry.RaycastingScene()
+cube_id = scene.add_triangles(cube)
 #Creating the rays
 
 # We create two rays:
@@ -26,18 +31,13 @@ rays = o3d.core.Tensor([[0.5, 0.5, 10, 0, 0, -1], [-1, -1, -1, 0, 0, -1]],
 
 ans = scene.cast_rays(rays)
 
-
-
-
-
-
 print(ans.keys())
 print(ans['t_hit'].numpy(), ans['geometry_ids'].numpy())
 
 # Visualize the box mesh
 vis = o3d.visualization.Visualizer()
 vis.create_window()
-vis.add_geometry(tensor_mesh.to_legacy())
+#vis.add_geometry(tensor_mesh.to_legacy())
 #vis.run()
 #vis.destroy_window()
 
