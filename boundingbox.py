@@ -1,7 +1,39 @@
 import numpy as np
 import open3d as o3d
-#import matplotlib
+
 #import os
+
+
+
+#trying to get the average mesh normals
+def compute_average_normal_t(mesh, triangle_index):
+    
+    #Make sure that the normals of mesh have been computed
+    #Get tensor of triangles_indicies and normals_vectors of mesh
+    triangles = mesh.triangle['indices']
+    normals = mesh.triangle['normals']
+
+    # Get the vertices of the target triangle
+    target_triangle = triangles[triangle_index].numpy()
+
+
+    # Find neighboring triangles (those sharing any vertex with the target triangle)
+    mask = np.isin(triangles.numpy(), target_triangle).any(axis=1)
+    
+    # Get the normals of the neighboring triangles
+    neighboring_normals = normals[mask]
+
+    # Compute the average normal
+    average_normal = neighboring_normals.mean(dim=0)
+    
+    # Normalize the average normal
+    average_normal_np = average_normal.numpy()
+    norm = np.linalg.norm(average_normal_np)
+    average_normal = average_normal_np / norm
+    
+    return average_normal
+
+
 
 
 '''
@@ -23,17 +55,17 @@ bounding_box=plane.get_oriented_bounding_box()
 
 #min_bounding_box=plane.get_minimal_oriented_bounding_box()
 
-bounding_box.color=[1,0,0]
+#bounding_box.color=[1,0,0]
 
 #min_bounding_box.color=(0,1,0)
 #o3d.visualization.draw_geometries([plane,bounding_box,min_bounding_box])
 
 
-frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100)
-transformation=np.eye(4)
-transformation[:3,:3]=bounding_box.R
-transformation[:3, 3]=bounding_box.center
-frame.transform(transformation)
+# frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100)
+# transformation=np.eye(4)
+# transformation[:3,:3]=bounding_box.R
+# transformation[:3, 3]=bounding_box.center
+# frame.transform(transformation)
 #o3d.visualization.draw_geometries([plane,bounding_box,frame])
 
 
@@ -101,13 +133,15 @@ for i in range(len(range_u)-1):
         faces.append([idx2, idx4, idx3])
 faces = np.array(faces)
 
-#form o3d tensor geometry
+#form o3d tensor geometry (technically not needed)
 vertices_o3d = o3d.core.Tensor(points, dtype=o3d.core.Dtype.Float32)
 triangles_o3d = o3d.core.Tensor(faces, dtype=o3d.core.Dtype.Int32)
-mesh = o3d.t.geometry.TriangleMesh(vertices_o3d, triangles_o3d)
+slice = o3d.t.geometry.TriangleMesh(vertices_o3d, triangles_o3d)
+slice.compute_triangle_normals()
 
 #Ray Cast to test for intersection
 tensor_plane = o3d.t.geometry.TriangleMesh.from_legacy(plane)
+tensor_plane.compute_triangle_normals()
 scene = o3d.t.geometry.RaycastingScene()
 tensor_cast_id = scene.add_triangles(tensor_plane)
 LocVec=[]
@@ -129,9 +163,9 @@ ans = scene.cast_rays(LocVec)
 #Normals of the hit trianges
 #print(ans['primitive_normals'].numpy())
 
-vis = o3d.visualization.Visualizer()
-vis.create_window()
-vis.add_geometry(plane)
+#vis = o3d.visualization.Visualizer()
+#vis.create_window()
+#vis.add_geometry(plane)
 
 
 for i in range(len(range_u)):
@@ -140,21 +174,25 @@ for i in range(len(range_u)):
         delta=dist*tertiary_vector
         onSurface=LocVec.numpy()[i][:3]+delta
         pose=ans['primitive_normals'].numpy()[i]
-        print(onSurface,pose)
-        line_points = [onSurface, onSurface+pose*30]
-        line_set = o3d.geometry.LineSet(
-        points=o3d.utility.Vector3dVector(line_points),
-        lines=o3d.utility.Vector2iVector([[0, 1]]))
-        line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
-        vis.add_geometry(line_set)
+        intersection_index=ans['primitive_ids'].numpy()[i]
+        print(f"Intersected triangle index: {intersection_index}")
+        #make sure to use the actual plane here lol
+        average_normal = compute_average_normal_t(tensor_plane, intersection_index)
+        print(f"Average normal of all neighbors: {average_normal}")
         
-
-
+        #line_points = [onSurface, onSurface+pose*30]
+        #line_set = o3d.geometry.LineSet(
+        #points=o3d.utility.Vector3dVector(line_points),
+        #lines=o3d.utility.Vector2iVector([[0, 1]]))
+        #line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
+        #vis.add_geometry(line_set)
+        
 
 #vis.run()
 #vis.destroy_window()
 
-
+'''
+print('hello')
 # Visualize rays
 raynp=LocVec.numpy()
 #print(raynp)
@@ -172,13 +210,13 @@ for ray in raynp:
 # Render the scene
 vis.run()
 vis.destroy_window()
-
+'''
 
 
 
 
 '''Mesh Intersection attempt
-ans = mesh.boolean_intersection(tensor_plane)
+ans = slice.boolean_intersection(tensor_plane)
 o3d.visualization.draw([{'name': 'intersection', 'geometry': ans}])
 '''
 
