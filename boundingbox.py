@@ -163,9 +163,9 @@ ans = scene.cast_rays(LocVec)
 #Normals of the hit trianges
 #print(ans['primitive_normals'].numpy())
 
-#vis = o3d.visualization.Visualizer()
-#vis.create_window()
-#vis.add_geometry(plane)
+vis = o3d.visualization.Visualizer()
+vis.create_window()
+vis.add_geometry(plane)
 
 
 for i in range(len(range_u)):
@@ -173,26 +173,25 @@ for i in range(len(range_u)):
         dist=ans['t_hit'].numpy()[i]
         delta=dist*tertiary_vector
         onSurface=LocVec.numpy()[i][:3]+delta
-        pose=ans['primitive_normals'].numpy()[i]
+        #pose=ans['primitive_normals'].numpy()[i]
         intersection_index=ans['primitive_ids'].numpy()[i]
         print(f"Intersected triangle index: {intersection_index}")
         #make sure to use the actual plane here lol
         average_normal = compute_average_normal_t(tensor_plane, intersection_index)
         print(f"Average normal of all neighbors: {average_normal}")
         
-        #line_points = [onSurface, onSurface+pose*30]
-        #line_set = o3d.geometry.LineSet(
-        #points=o3d.utility.Vector3dVector(line_points),
-        #lines=o3d.utility.Vector2iVector([[0, 1]]))
-        #line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
-        #vis.add_geometry(line_set)
+        line_points = [onSurface, onSurface+average_normal*30]
+        line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(line_points),
+        lines=o3d.utility.Vector2iVector([[0, 1]]))
+        line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
+        vis.add_geometry(line_set)
         
 
-#vis.run()
-#vis.destroy_window()
 
-'''
-print('hello')
+
+
+
 # Visualize rays
 raynp=LocVec.numpy()
 #print(raynp)
@@ -210,7 +209,7 @@ for ray in raynp:
 # Render the scene
 vis.run()
 vis.destroy_window()
-'''
+
 
 
 
