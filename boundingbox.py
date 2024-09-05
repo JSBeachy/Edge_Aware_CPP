@@ -57,9 +57,11 @@ for i in range(plane_nums):
 
 print(plane_int)
 '''
-plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
+#plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
+plane=o3d.io.read_triangle_mesh('plane_segments\Plannertest.stl')
 #o3d.visualization.draw_geometries([plane])
 bounding_box=plane.get_oriented_bounding_box()
+
 #Calculate PCA manually
 PCApoints=np.asarray(plane.vertices)
 mean=np.mean(PCApoints, axis=0)
@@ -69,11 +71,11 @@ eigenvalues,eigenvectors=np.linalg.eig(cov_matrix)
 spaceing_eig=min(eigenvalues)
 
 #min_bounding_box=plane.get_minimal_oriented_bounding_box()
-
-#bounding_box.color=[1,0,0]
-
 #min_bounding_box.color=(0,1,0)
-#o3d.visualization.draw_geometries([plane,bounding_box,min_bounding_box])
+bounding_box.color=[1,0,0]
+
+
+o3d.visualization.draw_geometries([plane,bounding_box])
 
 
 # frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100)
@@ -86,6 +88,8 @@ spaceing_eig=min(eigenvalues)
 
 
 bblen=list(bounding_box.extent)
+print(bounding_box.center)
+print(bblen)
 primary_axis_index=bblen.index(max(bblen))
 popped_bblen=bblen[0:primary_axis_index]+bblen[primary_axis_index+1:]
 secondary_axis_index=bblen.index(max(popped_bblen))
@@ -187,14 +191,14 @@ for i in passes:
     #Normals of the hit trianges
     #print(ans['primitive_normals'].numpy())
 
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    vis.add_geometry(plane)
+    # vis = o3d.visualization.Visualizer()
+    # vis.create_window()
+    # vis.add_geometry(plane)
 
-    vec=[]
+
     
     poses=[]
-    
+    #Determine the index of ray-casting to use for RoboDK targets
     index=[p for p,q in enumerate(ans['geometry_ids']) if q==0]
     EEwidth=32
     spread=index[-(EEwidth//2-1)]-index[EEwidth//2-1]
@@ -212,15 +216,15 @@ for i in passes:
         #make sure to use the actual plane here lol
         average_normal = compute_average_normal_t(tensor_plane, intersection_index)
         #print(f"Average normal of all neighbors: {average_normal}")
-        vec.append(average_normal)
-        line_points = [onSurface, onSurface+average_normal*30]
-        line_set = o3d.geometry.LineSet(
-        points=o3d.utility.Vector3dVector(line_points),
-        lines=o3d.utility.Vector2iVector([[0, 1]]))
-        line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
-        vis.add_geometry(line_set)
+        
+        # line_points = [onSurface, onSurface+average_normal*30]
+        # line_set = o3d.geometry.LineSet(
+        # points=o3d.utility.Vector3dVector(line_points),
+        # lines=o3d.utility.Vector2iVector([[0, 1]]))
+        # line_set.paint_uniform_color([0, 1, 0])  # Red color for the rays
+        # vis.add_geometry(line_set)
 
-        #TODO: Create RoboDK points
+        #Creates RoboDK points
         target_pos=RL.AddTarget("Target_"+str(passes.index(i)+1)+"_"+str(k+1))
 
         transformation_matrix=np.eye(4)
@@ -233,7 +237,7 @@ for i in passes:
         target_pos.setPose(pose)
         poses.append(target_pos)
 
-    program=RL.AddProgram("Path_"+str(passes.index(i)))
+    program=RL.AddProgram("Path_"+str(passes.index(i)+1))
     print(i)
     if i%2!=0:
         poses=poses[::-1]
@@ -249,27 +253,27 @@ for i in passes:
     # Visualize rays, create a Line Set from the average vectors
     raynp=LocVec.numpy()
 
-    for ray in raynp:
-        origin = ray[:3]
-        direction = ray[3:]
-        line_points = [origin, origin + direction * 30]  # Extend the ray for visualization
-        line_set = o3d.geometry.LineSet(
-            points=o3d.utility.Vector3dVector(line_points),
-            lines=o3d.utility.Vector2iVector([[0, 1]])
-        )
-        line_set.paint_uniform_color([1, 0, 0])  # Red color for the rays
-        vis.add_geometry(line_set)
+    # for ray in raynp:
+    #     origin = ray[:3]
+    #     direction = ray[3:]
+    #     line_points = [origin, origin + direction * 30]  # Extend the ray for visualization
+    #     line_set = o3d.geometry.LineSet(
+    #         points=o3d.utility.Vector3dVector(line_points),
+    #         lines=o3d.utility.Vector2iVector([[0, 1]])
+    #     )
+    #     line_set.paint_uniform_color([1, 0, 0])  # Red color for the rays
+    #     vis.add_geometry(line_set)
 
 
 
     # Render the scene
-    vis.run()
-    vis.destroy_window()
+    #vis.run()
+    #vis.destroy_window()
 
 
 input("Ready to CLose?:    ")
 
-RL.Save('segmentscan.rdk')
+#RL.Save('segmentscan.rdk')
 RL.CloseStation()
 RL.CloseRoboDK()
 
