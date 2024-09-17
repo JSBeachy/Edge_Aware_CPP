@@ -124,6 +124,7 @@ u=rot[:,primary_axis_index]
 v=rot[:,tertiary_axis_index]
 num_u=int(primary_axis_length//1+20)
 num_v=int(tertiary_axis_length//1)
+#with num_u, each index represents spacing of almost exactly 1 mm
 range_u=np.linspace(-int(primary_axis_length/2)-10,int(primary_axis_length/2)+10,num_u )
 range_v=np.linspace(-int(tertiary_axis_length/2)-10,int(tertiary_axis_length/2+10),num_v)
 
