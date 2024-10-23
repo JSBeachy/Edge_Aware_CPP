@@ -1,6 +1,7 @@
 import numpy as np
 import open3d as o3d
 from robodk import robolink, robomath
+import time
 
 #Function to get the average mesh normals, make sure normals have already been computed
 def compute_average_normal_t(mesh, triangle_index):
@@ -40,6 +41,9 @@ def build_a_mesh(num_v,range_u,range_v):
 stationpath='segmentscan.rdk'
 RL=robolink.Robolink()
 station=RL.AddFile(stationpath)
+#RL.AddFile('plane_segments\Plannertest.stl')\
+RL.AddFile('plane_segments\Plannertest.stl')
+time.sleep(1)
 station_items=RL.ItemList()
 for item in station_items:
     if item.Type()==robolink.ITEM_TYPE_TARGET or item.Type()==robolink.ITEM_TYPE_PROGRAM:
@@ -57,8 +61,8 @@ for i in range(plane_nums):
 
 print(plane_int)
 '''
-#plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
 plane=o3d.io.read_triangle_mesh('plane_segments\Plannertest.stl')
+#plane=o3d.io.read_triangle_mesh('plane_segments\Plannertest.stl')
 #o3d.visualization.draw_geometries([plane])
 bounding_box=plane.get_oriented_bounding_box()
 
@@ -75,7 +79,7 @@ spaceing_eig=min(eigenvalues)
 bounding_box.color=[1,0,0]
 
 
-o3d.visualization.draw_geometries([plane,bounding_box])
+#o3d.visualization.draw_geometries([plane,bounding_box])
 
 
 # frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100)
@@ -238,6 +242,8 @@ for i in passes:
         target_pos.setPose(pose)
         poses.append(target_pos)
 
+    print(poses)
+    print(type(poses[0]))
     program=RL.AddProgram("Path_"+str(passes.index(i)+1))
     print(i)
     if i%2!=0:
