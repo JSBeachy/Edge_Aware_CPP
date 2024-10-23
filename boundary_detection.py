@@ -1,79 +1,184 @@
 import open3d as o3d
-from collections import defaultdict
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial import ConvexHull
+import itertools
+from PCAClass import PCABounding
 
 
-# Load STL mesh
-def load_stl(file_path):
-    mesh = o3d.io.read_triangle_mesh(file_path)
-    mesh.compute_adjacency_list()
-    return mesh
+def distance_theshold(new_point,cornerpoints):
+    #TODO: Link threshold to with the length of primary/secondary axis 
+    threshold=20
+    for corner in cornerpoints:
+        if np.linalg.norm(new_point-corner)<threshold:
+            return False
+    return True
 
-# Find edges and check if they are on the boundary
-def find_boundary_edges(mesh):
+def linearity_score(vec1,vec2):
+    cos_theta= np.dot(vec1,vec2) / (np.linalg.norm(vec1)*np.linalg.norm(vec2))
+    return abs(cos_theta)
+
+# Load the STL file
+#mesh = o3d.io.read_triangle_mesh("plane_segments\Circle_mesh.stl")
+mesh = o3d.io.read_triangle_mesh("plane_segments\Skinny_tall_mesh.stl")
+#mesh = o3d.io.read_triangle_mesh("plane_segments\Fat_Short_mesh.stl")
+#mesh = o3d.io.read_triangle_mesh("plane_segments\plane_segment_8_mesh.stl")
+
+#segment=PCABounding("plane_segments\Skinny_tall_mesh.stl")
+
+
+# Ensure the mesh has edges and triangle information for visualization
+# segment.mesh.compute_adjacency_list()
+# segment.mesh.compute_triangle_normals()
+# segment.mesh.compute_vertex_normals()
+mesh.compute_adjacency_list()
+mesh.compute_triangle_normals()
+mesh.compute_vertex_normals()
+
+# Find boundary edges and identify verticies
+# (edge method becuase vertices method does not work as expected)
+#edges = segment.mesh.get_non_manifold_edges(allow_boundary_edges=False) #Non-manifold defined differently if True
+edges = mesh.get_non_manifold_edges(allow_boundary_edges=False) #Non-manifold defined differently if True
+boundary_vertices = np.unique(np.array(edges).flatten())
+ 
+# Extract vertex coordinates from the edge list
+#boundary_vertices_coords = np.asarray(segment.mesh.vertices)[boundary_vertices]
+boundary_vertices_coords = np.asarray(mesh.vertices)[boundary_vertices]
+#print("Boundary Vertices Coordinates:")
+#print(boundary_vertices_coords)
+
+# Create a visualization object
+boundary_pcd = o3d.geometry.PointCloud()
+boundary_pcd.points = o3d.utility.Vector3dVector(boundary_vertices_coords)
+boundary_pcd.paint_uniform_color([1,0,0])
+#o3d.visualization.draw_geometries([mesh, boundary_pcd], point_show_normal=False)
+
+
+#Take convex hull and find the verticies
+Coords2D=boundary_vertices_coords[:,:2]
+hull = ConvexHull(boundary_vertices_coords[:,:2])
+hull_vertices=boundary_vertices_coords[hull.vertices]
+
+#Calculate relative linearity of consecutive hull points (corners are angled)
+linscore=[]
+for index, val in enumerate(hull_vertices):
+    prev_point=hull_vertices[index-1]
+    curr_point=val
+    next_point=hull_vertices[(index+1) % len(hull_vertices)]
+    vec1=curr_point-prev_point
+    vec2=next_point-curr_point
+    linscore.append(linearity_score(vec1,vec2))
+
 
     
-    edge_to_face_count = defaultdict(int)
 
-    # Extract triangles from the mesh
-    triangles = np.asarray(mesh.triangles)
+plt.plot(Coords2D[:,0], Coords2D[:,1], 'o')
+for simplex in hull.simplices:
+    plt.plot(Coords2D[simplex, 0], Coords2D[simplex, 1], 'r*')
 
-    # Iterate through each triangle and register its edges
-    for tri in triangles:
-        # A triangle has 3 edges, each defined by a pair of vertices
-        edges = [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])]
 
-        for edge in edges:
-            print(edge)
-            # Sort edge vertices so that (v0, v1) and (v1, v0) are considered the same
-            edge = tuple(sorted(edge))
-            print(edge)
-            print('\n')
-            edge_to_face_count[edge] += 1
+#TODO implement a non-np.array type for verticies (may be okay now)
+paired=sorted(zip(linscore, hull_vertices)) #sort pairwise points by pairings
+re_ordered_pairs=[coord for score,coord in paired] #returns the pairs ordered from longest to shortest
+cornerpoints=re_ordered_pairs[:4]
+print(cornerpoints)
+plt.plot(np.array(cornerpoints)[:,0],np.array(cornerpoints)[:,1], 'g*')
+#plt.show()
 
-    # Identify boundary edges (edges belonging to only 1 face)
-    boundary_edges = [edge for edge, count in edge_to_face_count.items() if count == 1]
+## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
+edges=list(itertools.combinations(cornerpoints, 2))
+#vec2=segment.primary_axis
+edgescore=[]
+vec2=np.array([0,0.99999, 0.0])
+for index, val in enumerate(edges):
+    curr_point=val
+    vec1=curr_point[1]-curr_point[0]
+    edgescore.append(linearity_score(vec1,vec2))
+print(edgescore)
+edges_lists=[[vertex.tolist() for vertex in edge] for edge in edges]
+print(edges_lists)
+paired=sorted(zip(edgescore, edges_lists), reverse=True) #sort pairwise points by pairings
+re_ordered_pairs=[edge for score,edge in paired] #returns the pairs ordered from longest to shortest
+#print(re_ordered_pairs)
+alignededges=re_ordered_pairs[:2]
+print(alignededges)
+exit()
 
-    return boundary_edges
 
-# Create a LineSet object to visualize boundary edges
-def create_boundary_lines(mesh, boundary_edges):
-    vertices = np.asarray(mesh.vertices)
-    print( 'weeeeee' )
-    # Create an Open3D LineSet to display edges
-    lines = []
-    for edge in boundary_edges:
-        print(edge[0],edge[1])
-        lines.append([edge[0], edge[1]])
 
-    line_set = o3d.geometry.LineSet(
-        points=o3d.utility.Vector3dVector(vertices),
-        lines=o3d.utility.Vector2iVector(lines)
-    )
-    
-    # Set the color of the boundary edges to red
-    colors = [[1, 0, 0] for _ in range(len(lines))]  # Red color
-    line_set.colors = o3d.utility.Vector3dVector(colors)
-    
-    return line_set
 
-def main():
-    # Path to your STL file
-    file_path = 'plane_segments\Plannertest.stl'
 
-    # Load the mesh
-    mesh = load_stl(file_path)
 
-    # Find boundary edges
-    boundary_edges = find_boundary_edges(mesh)
 
-    # Create LineSet for boundary edges
-    boundary_lines = create_boundary_lines(mesh, boundary_edges)
 
-    # Visualize the mesh and boundary edges together
-    mesh.compute_vertex_normals()
-    o3d.visualization.draw_geometries([mesh, boundary_lines])
 
-if __name__ == "__main__":
-    main()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## For calculating corners based on pairwise distance.... Not guaranteed much with this method
+'''
+pairs=itertools.combinations(hull.vertices, 2)
+pairs=list(pairs)
+distances=[]
+for i in pairs:
+    coords=[boundary_vertices_coords[j] for j in i]
+    #print(coords)
+    distances.append(np.linalg.norm(coords[0]-coords[1]))
+#print(distances)
+paired=sorted(zip(distances,pairs), reverse=True) #sort pairwise points by pairings
+re_ordered_pairs=[pair for dist,pair in paired] #returns the pairs ordered from longest to shortest
+#print(re_ordered_pairs)
+
+
+#determine corners
+cornerpoints=[]
+counter=0
+index=[]
+while len(cornerpoints)<4:
+    point_tuple=re_ordered_pairs[counter]
+    for j in point_tuple:
+        new_point = boundary_vertices_coords[j]
+        if j not in index and distance_theshold(new_point, cornerpoints):
+            index.append(j)
+            cornerpoints.append(new_point)  
+
+    counter+=1
+'''
