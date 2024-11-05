@@ -70,13 +70,10 @@ segment.find_primary_scanning_edges()
 
 ## Take edge and classify all points between as point to best-fit 
 hull_vertices_list=[vertex.tolist() for vertex in segment.hull_vertices]
-#index=np.where(hull_vertices==np.array(alignededges[0][1]))
 primary_edge=segment.aligned_edges[0]
 secondary_edge=segment.aligned_edges[1]
-
-
-group1=fitting(len(hull_vertices_list), primary_edge)
-group2=fitting(len(hull_vertices_list), secondary_edge)
+group1=segment.fitting(len(hull_vertices_list), primary_edge, hull_vertices_list)
+group2=segment.fitting(len(hull_vertices_list), secondary_edge, hull_vertices_list)
 
 plt.plot(group1[:,0],group1[:,1], "*",markersize=10,)#label="Group 1")
 plt.plot(group2[:,0],group2[:,1], "*",markersize=10,)#label="Group 2")

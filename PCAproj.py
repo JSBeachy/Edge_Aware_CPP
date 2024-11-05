@@ -23,9 +23,6 @@ print(idx)
 PCA_eigenvals = eigenvals[idx]
 PCA_eigenvecs= eigenvecs[:,idx]
 print(PCA_eigenvecs,PCA_eigenvals)
-exit()
-
-
 PCA_eigenvecs2D=PCA_eigenvecs[:,:2]
 
 

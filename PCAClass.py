@@ -123,7 +123,7 @@ class Best_Fit_CPP(PCABounding):
         cos_theta= np.dot(vec1,vec2) / (np.linalg.norm(vec1)*np.linalg.norm(vec2))
         return abs(cos_theta)
 
-    def fitting(self, len_my_list, edge_list):
+    def fitting(self, len_my_list, edge_list, hull_vertices_list):
             #use list comprehension and sorting to order the list index
             direction=1
             index=sorted([hull_vertices_list.index(i) for i in edge_list])
