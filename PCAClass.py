@@ -49,10 +49,10 @@ class PCABounding:
     
     def axis_determination(self):
         self.rot=self.bounding_box.R
-        self.cent= bounding_box.center 
-        self.primary_axis=bounding_box.R[:,self.primary_axis_index]
-        self.secondary_axis=bounding_box.R[:,self.secondary_axis_index]
-        self.tertiary_axis=bounding_box.R[:,self.tertiary_axis_index]
+        self.cent= self.bounding_box.center 
+        self.primary_axis=self.bounding_box.R[:,self.primary_axis_index]
+        self.secondary_axis=self.bounding_box.R[:,self.secondary_axis_index]
+        self.tertiary_axis=self.bounding_box.R[:,self.tertiary_axis_index]
 
 
 class Best_Fit_CPP(PCABounding):
@@ -138,8 +138,8 @@ class Best_Fit_CPP(PCABounding):
     
 
 
-plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
-bounding_box=plane.get_oriented_bounding_box()
+#plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
+#bounding_box=plane.get_oriented_bounding_box()
 
 
 
