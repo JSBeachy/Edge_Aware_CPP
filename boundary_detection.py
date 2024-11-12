@@ -1,33 +1,12 @@
 import open3d as o3d
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.spatial import ConvexHull
-import itertools
 from PCAClass import PCABounding, Best_Fit_CPP
 import time
+import math
 
-def linearity_score(vec1,vec2):
-    cos_theta= np.dot(vec1,vec2) / (np.linalg.norm(vec1)*np.linalg.norm(vec2))
-    return abs(cos_theta)
-
-def fitting(len_my_list, edge_list):
-    #use list comprehension and sorting to order the list index
-    direction=1
-    index=sorted([hull_vertices_list.index(i) for i in edge_list])
-    counterclockwise = (index[0] - index[1]) % len_my_list
-    clockwise = (index[1] - index[0]) % len_my_list
-    length=min(clockwise,counterclockwise)
-    if counterclockwise<=clockwise:
-        direction=-1
-    group=[hull_vertices_list[(index[0] + i*direction)] for i in range(length+1)]
-    return np.asarray(group)
-
-# Load the STL file
-#mesh = o3d.io.read_triangle_mesh("plane_segments\Circle_mesh.stl")
-#mesh = o3d.io.read_triangle_mesh("plane_segments\Skinny_tall_mesh.stl")
-#mesh = o3d.io.read_triangle_mesh("plane_segments\Fat_Short_mesh.stl")
-mesh = o3d.io.read_triangle_mesh("plane_segments\plane_segment_8_mesh.stl")
-
+  
+s=time.time()
 segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
@@ -56,14 +35,14 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 #Least linear groups are centered on corner point
 segment.find_corner_points()
 
-plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
-plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
-plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
-plt.xlabel("X-coordinate")
-plt.ylabel("Y-coordinate")
+#2D plot of convex hull and corner points
+#plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
+#plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
+#plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
+#plt.xlabel("X-coordinate")
+#plt.ylabel("Y-coordinate")
 #plt.legend()
 #plt.show()
-print(segment.primary_axis)
 
 ## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
 segment.find_primary_scanning_edges()
@@ -72,30 +51,74 @@ segment.find_primary_scanning_edges()
 hull_vertices_list=[vertex.tolist() for vertex in segment.hull_vertices]
 primary_edge=segment.aligned_edges[0]
 secondary_edge=segment.aligned_edges[1]
-group1=segment.fitting(len(hull_vertices_list), primary_edge, hull_vertices_list)
-group2=segment.fitting(len(hull_vertices_list), secondary_edge, hull_vertices_list)
+group1=segment.splitting(len(hull_vertices_list), primary_edge, hull_vertices_list)
+group2=segment.splitting(len(hull_vertices_list), secondary_edge, hull_vertices_list)
+#Find the 1D fitting (line) of points
+segment.edge1_cent,segment.edge1_vec=segment.fit_line_3d(group1)
+segment.edge2_cent,segment.edge2_vec=segment.fit_line_3d(group2)
+#Form the array of points that make up the line
+line_points1 = segment.point_creator(segment.edge1_cent,segment.edge1_vec, 100)
+line_points2 = segment.point_creator(segment.edge2_cent,segment.edge2_vec, 100)
 
-plt.plot(group1[:,0],group1[:,1], "*",markersize=10,)#label="Group 1")
-plt.plot(group2[:,0],group2[:,1], "*",markersize=10,)#label="Group 2")
-
-slope1, intercept1 = np.polyfit(group1[:,0],group1[:,1], 1)
-slope2, intercept2 = np.polyfit(group2[:,0],group2[:,1], 1)
-samplex=np.linspace(-425,425,20)
-sampley1=np.zeros(20)
-sampley2=np.zeros(20)
-for index,x in enumerate(samplex):
-    sampley1[index]=slope1*x+intercept1
-    sampley2[index]=slope2*x+intercept2
-plt.plot(samplex, sampley1,linewidth=4,label="Edge 1")
-plt.plot(samplex, sampley2,linewidth=4,label="Edge 2")
-
-
-#TODO: Need to determine # of necessary passes
-n_passes=15
-n=n_passes-1
+'''
+line_pcd1 = o3d.geometry.PointCloud()
+line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
+line_pcd1.paint_uniform_color([0, 1, 0])
+line_pcd2 = o3d.geometry.PointCloud()
+line_pcd2.points = o3d.utility.Vector3dVector(line_points2)
+line_pcd2.paint_uniform_color([0, 0, 1])
+#Code for Interpolating lines
+intermediate_points=o3d.geometry.PointCloud()
+n=5
 for i in range(1,n):
-    plt.plot(samplex, sampley1*(1-i/n)+sampley2*(i/n),linewidth=2.5,label=f"Intermediate step {i}")
-plt.legend()
-plt.show()
+   temp_ptc=o3d.geometry.PointCloud()
+   temp_ptc.points=o3d.utility.Vector3dVector(np.asarray(line_pcd1.points)*(1-i/(n-1))+np.asarray(line_pcd2.points)*(i/(n-1)))
+   temp_ptc.paint_uniform_color([0, 1-i/(n-1),i/(n-1)])
+   intermediate_points+=temp_ptc
 
+o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2, intermediate_points])
+'''
 
+#Scan_information takes: probe width, scan_line1, scan_line2, and the edge offset (optional)
+segment.scan_information(64, line_points1, line_points2,)
+#Prints out relevant information about scan_passes
+segment.print_scan_information()
+
+#Edge Offset: find what direction to move in for each vector
+segment.shift_direction()
+#shift_vec=offset (default is 1/2 probe width) shift in the direction of the secondary-axis
+shift_vec=segment.offset_one*segment.secondary_axis
+line_one=np.asarray(line_points1) - segment.offset_dir*shift_vec
+line_last=np.asarray(line_points2) + segment.offset_dir*shift_vec
+color_one=np.asarray([0, 1, 0])
+color_two=np.asarray([0, 0, 1])
+
+'''
+#Option 1 (Option 2 from Num_pass_calc - Intermediate Interpolation) -NOT Prefered
+interp_one=np.asarray(line_pcd1.points) - dot_1*(probe_width+real_per_pass_width/2)*segment.secondary_axis
+interp_two=np.asarray(line_pcd2.points) - dot_2*(probe_width+real_per_pass_width/2)*segment.secondary_axis
+lines=[]
+for i in range(tot_passes):
+    if i==0:
+        lines.append(line_one)
+    elif i==tot_passes-1:
+        lines.append(line_last)
+    else:
+        lines.append(interp_one*(1-(i-1)/(passes_left-1))+interp_two*((i-1)/(passes_left-1)))
+'''
+
+#Option 2 (Option 3 from Num_pass_calc - Direct interpolation)
+lines=[]
+color=[]
+tot_passes=segment.tot_passes
+for i in range(tot_passes):
+    lines.append(line_one*(1-(i)/(tot_passes-1))+line_last*((i)/(tot_passes-1)))
+    color.append(color_one*(1-(i)/(tot_passes-1))+color_two*((i)/(tot_passes-1)))
+color_arrays = [np.array(color) * np.ones((lines[1].shape[0], 1)) for points, color in zip(lines, color)]
+trial=o3d.geometry.PointCloud()
+trial.points=o3d.utility.Vector3dVector(np.vstack(lines))
+trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
+o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial])
+
+#e=time.time()
+#print(f"{round(e-s,3)} seconds run time")

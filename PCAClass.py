@@ -3,6 +3,7 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from collections import Counter
 import itertools
+import math
 
 class PCABounding:
     tolerance = 1e-5  # Adjust tolerance as needed
@@ -12,6 +13,7 @@ class PCABounding:
         self.mesh=o3d.io.read_triangle_mesh(file)
         self.mesh.merge_close_vertices(self.tolerance)
         self.bounding_box=self.mesh.get_oriented_bounding_box()
+        self.bounding_box.color=([1,0,0])
         self.index_determination()
         self.axis_determination()
         self.PCApoints=np.asarray(self.mesh.vertices)
@@ -46,6 +48,7 @@ class PCABounding:
         popped_bblen=bblen[0:self.primary_axis_index]+bblen[self.primary_axis_index+1:]
         self.secondary_axis_index=bblen.index(max(popped_bblen))
         self.tertiary_axis_index=3-(self.primary_axis_index+self.secondary_axis_index)
+        self.bb_len=self.bounding_box.extent[self.primary_axis_index]
     
     def axis_determination(self):
         self.rot=self.bounding_box.R
@@ -63,7 +66,18 @@ class Best_Fit_CPP(PCABounding):
         self.PCA_pointsND=None
         self.corner_points=None
         self.aligned_edges=None
-        #self.boundary_pcd=o3d.geometry.PointCloud()
+        self.edge1_vec=None
+        self.edge1_cent=None
+        self.edge2_vec=None
+        self.edge2_cent=None
+        self.probe_width=64
+        self.tot_width=None
+        self.tot_passes=None
+        self.per_pass_width=None
+        self.real_per_pass_width=None
+        self.read_distance=None
+        self.edge_offset=None
+        self.offset_dir=None
 
     def boundary_edge_finder(self):
         # o3d.get_non_manifold_edges() is roughly 4x faster, if possible use it
@@ -123,8 +137,8 @@ class Best_Fit_CPP(PCABounding):
         cos_theta= np.dot(vec1,vec2) / (np.linalg.norm(vec1)*np.linalg.norm(vec2))
         return abs(cos_theta)
 
-    def fitting(self, len_my_list, edge_list, hull_vertices_list):
-            #use list comprehension and sorting to order the list index
+    def splitting(self, len_my_list, edge_list, hull_vertices_list):
+            #splits the points between the two relevant corner points
             direction=1
             index=sorted([hull_vertices_list.index(i) for i in edge_list])
             counterclockwise = (index[0] - index[1]) % len_my_list
@@ -134,8 +148,86 @@ class Best_Fit_CPP(PCABounding):
                 direction=-1
             group=[hull_vertices_list[(index[0] + i*direction)] for i in range(length+1)]
             return np.asarray(group)
-
     
+    def fit_line_3d(self, points):
+        centroid=np.mean(points, axis=0)
+        #Use SVD to find principal direction in 1D (not)
+        _,_,v=np.linalg.svd(points-centroid)
+        direction_vector=v[0]
+        return centroid, direction_vector
+    
+    def point_creator(self, cent, vec, num_points, prop=5):
+        length=self.bb_len
+        prop_len=int(length/prop)
+        points=np.array([cent + t * vec for t in np.linspace(-length/2-prop_len, length/2+prop_len, num_points)])
+        return points
+    
+    def bounding_box_interior_points(self, points):
+        #should take np.array of points
+        bb_min=self.bounding_box.get_min_bound()
+        bb_max=self.bounding_box.get_max_bound()
+        p1=np.asarray(points)
+        inside_bbox = (p1 >= bb_min) & (p1 <= bb_max) #& for element-wise logic in numpy
+        within_bbox = np.all(inside_bbox, axis=1)
+        filtered_points=p1[within_bbox]
+        if filtered_points.size > 0:
+            #print( filtered_points[0] ) # Return the first point inside the bounding box
+            #print( filtered_points[-1] ) # Return the last point inside the bounding box
+            return(filtered_points[0],filtered_points[-1])
+        else:
+            print("No Points in Bounding Box")
+            return None 
+    
+    def scan_width_determination(self,line_pcd1,line_pcd2):
+        p0_0,p0_1=self.bounding_box_interior_points(line_pcd1)
+        p1_0,p1_1=self.bounding_box_interior_points(line_pcd2)
+        scan_width=max(np.linalg.norm(p0_0-p1_0),np.linalg.norm(p0_1-p1_1))
+        return scan_width
+    
+    def print_scan_information(self):
+        print(f"Total width to be scanned: {self.tot_width}")
+        print(f"Width allocated to each pass: {self.per_pass_width}")
+        print(f"Number of total passes: {self.tot_passes}")
+        real_distance=self.tot_width-2*self.probe_width
+        print(f"Number of passes remaining after setting edges: {math.ceil(real_distance/self.probe_width)}")
+        print(f"Approximate pass width after setting edges: {self.real_per_pass_width}")
+
+    def scan_information(self, probe_width, scan_line1, scan_line2, edge_offset=None):
+        if type(probe_width)==int or type(probe_width)==float:
+            self.probe_width=probe_width
+        else:
+            print("Invalid probe width entered")
+        half_probe=self.probe_width/2
+        
+        self.tot_width=self.scan_width_determination(scan_line1,scan_line2)
+        self.tot_passes=math.ceil(self.tot_width/self.probe_width)
+        self.per_pass_width=round(self.tot_width/self.tot_passes,2)
+        #setting both edges
+        #with edges set, calculate updated stats
+        self.real_distance=self.tot_width-2*self.probe_width
+        self.real_passes_left=math.ceil(self.real_distance/self.probe_width)
+        self.real_per_pass_width=self.real_distance/self.real_passes_left
+
+        if edge_offset==None:
+            self.offset_one=half_probe
+            offset_two=self.tot_width-self.offset_one
+        else:
+            self.offset_one=edge_offset
+            offset_two=self.tot_width-self.offset_one
+
+        #relics of Num_Pass_Calc.py
+        interp_one=self.probe_width+self.real_per_pass_width/2
+        interp_two=(self.tot_width-self.probe_width)-self.real_per_pass_width/2
+
+    def shift_direction(self):
+        direction1=self.edge1_cent-self.cent
+        direction2=self.edge2_cent-self.cent
+        dot_1=np.dot(direction1/np.linalg.norm(direction1),self.secondary_axis)
+        dot_2=np.dot(direction2/np.linalg.norm(direction2),self.secondary_axis)
+        if dot_1<0:
+            self.offset_dir=-1
+        else:
+            self.offset_dir=1 
 
 
 #plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
