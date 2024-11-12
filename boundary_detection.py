@@ -8,6 +8,7 @@ import math
   
 s=time.time()
 segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
+#segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
 segment.mesh.compute_adjacency_list()
@@ -90,35 +91,16 @@ segment.shift_direction()
 shift_vec=segment.offset_one*segment.secondary_axis
 line_one=np.asarray(line_points1) - segment.offset_dir*shift_vec
 line_last=np.asarray(line_points2) + segment.offset_dir*shift_vec
-color_one=np.asarray([0, 1, 0])
-color_two=np.asarray([0, 0, 1])
 
-'''
-#Option 1 (Option 2 from Num_pass_calc - Intermediate Interpolation) -NOT Prefered
-interp_one=np.asarray(line_pcd1.points) - dot_1*(probe_width+real_per_pass_width/2)*segment.secondary_axis
-interp_two=np.asarray(line_pcd2.points) - dot_2*(probe_width+real_per_pass_width/2)*segment.secondary_axis
-lines=[]
-for i in range(tot_passes):
-    if i==0:
-        lines.append(line_one)
-    elif i==tot_passes-1:
-        lines.append(line_last)
-    else:
-        lines.append(interp_one*(1-(i-1)/(passes_left-1))+interp_two*((i-1)/(passes_left-1)))
-'''
-
-#Option 2 (Option 3 from Num_pass_calc - Direct interpolation)
-lines=[]
-color=[]
-tot_passes=segment.tot_passes
-for i in range(tot_passes):
-    lines.append(line_one*(1-(i)/(tot_passes-1))+line_last*((i)/(tot_passes-1)))
-    color.append(color_one*(1-(i)/(tot_passes-1))+color_two*((i)/(tot_passes-1)))
+#Get official lines returned; with consideration for number of passes
+lines,color=segment.line_interpolator(line_one,line_last)
 color_arrays = [np.array(color) * np.ones((lines[1].shape[0], 1)) for points, color in zip(lines, color)]
+
+e=time.time()
+print(f"{round(e-s,3)} seconds run time")
+
+#Final visualization
 trial=o3d.geometry.PointCloud()
 trial.points=o3d.utility.Vector3dVector(np.vstack(lines))
 trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
 o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial])
-
-#e=time.time()
-#print(f"{round(e-s,3)} seconds run time")

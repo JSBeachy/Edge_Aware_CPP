@@ -214,7 +214,6 @@ class Best_Fit_CPP(PCABounding):
         else:
             self.offset_one=edge_offset
             offset_two=self.tot_width-self.offset_one
-
         #relics of Num_Pass_Calc.py
         interp_one=self.probe_width+self.real_per_pass_width/2
         interp_two=(self.tot_width-self.probe_width)-self.real_per_pass_width/2
@@ -228,6 +227,43 @@ class Best_Fit_CPP(PCABounding):
             self.offset_dir=-1
         else:
             self.offset_dir=1 
+
+    def line_interpolator(self, line_one, line_last):
+        '''
+        #Option 1 (Option 2 from Num_pass_calc - Intermediate Interpolation) -NOT Prefered
+        interp_one=np.asarray(line_pcd1.points) - dot_1*(probe_width+real_per_pass_width/2)*segment.secondary_axis
+        interp_two=np.asarray(line_pcd2.points) - dot_2*(probe_width+real_per_pass_width/2)*segment.secondary_axis
+        lines=[]
+        for i in range(tot_passes):
+            if i==0:
+                lines.append(line_one)
+            elif i==tot_passes-1:
+                lines.append(line_last)
+            else:
+                lines.append(interp_one*(1-(i-1)/(passes_left-1))+interp_two*((i-1)/(passes_left-1)))
+        '''
+
+        #Option 2 (Option 3 from Num_pass_calc - Direct interpolation)
+        #line_one, line_last are the edge_offset edges, this returns lines of paths
+        color_one=np.asarray([0, 1, 0])
+        color_two=np.asarray([0, 0, 1])
+        if self.tot_passes==1:
+            lines=[line_one]
+            color=[color_one]
+        elif self.tot_passes==2:
+            lines=[line_one, line_last]
+            color=[color_one, color_two]
+        else:
+            lines=[]
+            color=[]
+            for i in range(self.tot_passes):
+                lines.append(line_one*(1-(i)/(self.tot_passes-1))+line_last*((i)/(self.tot_passes-1)))
+                color.append(color_one*(1-(i)/(self.tot_passes-1))+color_two*((i)/(self.tot_passes-1)))
+        
+        return lines, color
+
+        
+
 
 
 #plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
