@@ -60,8 +60,8 @@ class PCABounding:
 
 class Best_Fit_CPP(PCABounding):
 
-    def __init__(self, file):
-        super().__init__(file)
+    def __init__(self, mesh):
+        super().__init__(mesh)
         self.boundary_vertices_coords=None
         self.PCA_pointsND=None
         self.corner_points=None
@@ -181,8 +181,10 @@ class Best_Fit_CPP(PCABounding):
     def scan_width_determination(self,line_pcd1,line_pcd2):
         p0_0,p0_1=self.bounding_box_interior_points(line_pcd1)
         p1_0,p1_1=self.bounding_box_interior_points(line_pcd2)
-        scan_width=max(np.linalg.norm(p0_0-p1_0),np.linalg.norm(p0_1-p1_1))
-        return scan_width
+        #calculate all between other two corners for each point, take third distance (primary axis distance should be largest 2)
+        scan_width=[np.linalg.norm(p0_0-p1_0),np.linalg.norm(p0_1-p1_1), np.linalg.norm(p0_0-p1_1),np.linalg.norm(p0_1-p1_0)]
+        print(scan_width)
+        return sorted(scan_width)[-3]
     
     def print_scan_information(self):
         print(f"Total width to be scanned: {self.tot_width}")
@@ -206,8 +208,10 @@ class Best_Fit_CPP(PCABounding):
         #with edges set, calculate updated stats
         self.real_distance=self.tot_width-2*self.probe_width
         self.real_passes_left=math.ceil(self.real_distance/self.probe_width)
-        self.real_per_pass_width=self.real_distance/self.real_passes_left
-
+        if self.real_passes_left>0:
+            self.real_per_pass_width=self.real_distance/self.real_passes_left
+        else:
+            self.real_per_pass_width="No Interior Passes"
         if edge_offset==None:
             self.offset_one=half_probe
             offset_two=self.tot_width-self.offset_one
@@ -263,9 +267,6 @@ class Best_Fit_CPP(PCABounding):
         return lines, color
 
         
-
-
-
 #plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')
 #bounding_box=plane.get_oriented_bounding_box()
 
