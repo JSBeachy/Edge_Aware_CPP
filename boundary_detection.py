@@ -25,7 +25,14 @@ segment.boundary_vertices_coords = np.asarray(segment.mesh.vertices)[boundary_ve
 boundary_pcd=o3d.geometry.PointCloud()
 boundary_pcd.points = o3d.utility.Vector3dVector(segment.boundary_vertices_coords)
 boundary_pcd.paint_uniform_color([1,0,0])
-#o3d.visualization.draw_geometries([segment.mesh, boundary_pcd], point_show_normal=False)
+
+# Display bounding-box coordinate frame (from PCA)
+transform=np.eye(4)
+PCA_coord_frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100.0)
+transform[:3,:3]=segment.rot
+transform[:3,3]=segment.cent
+PCA_coord_frame.transform(transform)
+#o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, PCA_coord_frame], point_show_normal=False)
 
 #Take convex hull and find the verticies
 #Find_convex_hull projects into 2D along least PCA axis, and takes hull of 2D points
@@ -37,13 +44,15 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 segment.find_corner_points()
 
 #2D plot of convex hull and corner points
-#plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
-#plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
-#plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
-#plt.xlabel("X-coordinate")
-#plt.ylabel("Y-coordinate")
-#plt.legend()
-#plt.show()
+plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
+plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
+plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
+plt.xlabel("X-coordinate", fontweight="bold",fontsize=14)
+plt.ylabel("Y-coordinate", fontweight="bold",fontsize=14)
+plt.legend(prop={'size': 14, 'weight': 'bold'})
+plt.xticks(fontsize=11, fontweight='bold')
+plt.yticks(fontsize=11, fontweight='bold')
+plt.show()
 
 ## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
 segment.find_primary_scanning_edges()
@@ -61,6 +70,7 @@ segment.edge2_cent,segment.edge2_vec=segment.fit_line_3d(group2)
 line_points1 = segment.point_creator(segment.edge1_cent,segment.edge1_vec, 100)
 line_points2 = segment.point_creator(segment.edge2_cent,segment.edge2_vec, 100)
 
+
 '''
 line_pcd1 = o3d.geometry.PointCloud()
 line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
@@ -77,7 +87,7 @@ for i in range(1,n):
    temp_ptc.paint_uniform_color([0, 1-i/(n-1),i/(n-1)])
    intermediate_points+=temp_ptc
 
-o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2, intermediate_points])
+o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2,])
 '''
 
 #Scan_information takes: probe width, scan_line1, scan_line2, and the edge offset (optional)
@@ -103,4 +113,4 @@ print(f"{round(e-s,3)} seconds run time")
 trial=o3d.geometry.PointCloud()
 trial.points=o3d.utility.Vector3dVector(np.vstack(lines))
 trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
-o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial])
+o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd])
