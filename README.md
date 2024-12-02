@@ -2,72 +2,35 @@
 
 ## Overview
 
-This repository contains the code that creates a complete coverage path for the robot to execute with the linear probe. This code should be applied to segements deemed to be planar through the heirarcichal face clustering segmentation algorithm. The code contained here has been integrated in Scan_to_plan_to_scan repository, where the coverage path generated here can be verified with RoboDK and sent as commands to the robot.
+This repository contains the code that creates a complete coverage path for the robot to execute with the linear ultrasonic probe. The code should be applied to segments deemed to be planar through the hierarchical face clustering segmentation algorithm. Code contained here has either been integrated into the Scan_to_plan_to_scan repository, where the coverage path generated here can be verified with RoboDK and sent as commands to the robot, or is kept here as an archive. 
 
 ## Files Description
 
-There are two different methods of planning paths in this repository. The current method applied in the Scan_to_plan_to_scan repository can be found in the boundary_detection.py python script
+There are two different methods of planning paths in this repository. The primary method fits a line to the two primary edges and interpolates between them. This guarantees that the edges of the segment will be well followed, ensuring data collection and protection from collisions with the part (but often leads to redundant coverage). Both the boundary_detection.py and the plain_Best_fit.py scripts contain this edge-fitting method. boundary_detection.py is written as an object-oriented script, relying completely on the classes and functions found in the PCAClass.py script. plain_Best_fit.py script is a procedural script that uses the same functions and accomplishes the same as the boundary_decection.py but without the additional class structures used to simplify the code.
 
-## Collaborate with your team
+The second path-planning method is the naive method. This method differs from the edge-fitting method by only relying on a bounding box to get the scanning direction. A plane parallel to the scanning direction is intersected with the segment at even intervals. While this method in theory also yields complete coverage, additional verifications must occur to ensure the path is collision-free and can hold a water column. The redundant coverage issue is still present, and the more mismatch between the bounding box and the segment, the worse this method will perform. It is contained in the procedural script boundingbox.py and is stored in this repository as an archive of previous path-planning methods.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+The other files in the repository are auxiliary. Num_pass_calc.py explores the necessary number of passes needed to completely inspect a part, including the spacing of each pass for various edge-offsetting processes. The plane_segments folder contains a variety of .stl files, each a planar segment from a real scan taken of our spar. Finally, the segmentscan.rdk is a RoboDK file, containing the RoboDK station and is needed to interface with the RoboDK API.
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The scripts in this repository are written in Python 3.11, and do require additional external libraries not native to Python. 
+
+- **`open3d`**: version 0.18.0
+- **`numpy`**: version 1.24.0
+- **`scipy`**: version 1.14.1
+- **`matplotlib`**: version 3.9.2
+- **`robodk`**: version 5.7.5
+- **`math`**: native
+- **`itertools`**: native
+- **`collections`**: native
+
+Most of these libraries do not affect each other, but numpy versions 2.xx.x will cause the visualization window of open3d version 0.18.0 to crash. All of these libraries can be installed with simple pip commands 
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+To use the code in this repository in a stand-alone manner, simply upload the .stl file of the segment you desire to inspect to the plane_segments folder. Then change the name in the mesh-import portion of the code in any of the scripts to the name of 
 
 ## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Jonas Beachy with help from Richard Lu, Professor Xu Chen, Andrew Na, and Bill Moon
 
 ## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+IP generated under the UW-Boeing master agreement
