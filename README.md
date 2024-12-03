@@ -16,7 +16,7 @@ The other files in the repository are auxiliary. Num_pass_calc.py explores the n
 The scripts in this repository are written in Python 3.11, and do require additional external libraries not native to Python. The libaries, and the version confirmed to integrate with all other libraries are listed here:
 
 - **`open3d`**: version 0.18.0
-- **`numpy`**: version 1.24.0
+- **`numpy`**: version 1.26.4
 - **`scipy`**: version 1.14.1
 - **`matplotlib`**: version 3.9.2
 - **`robodk`**: version 5.7.5
@@ -24,7 +24,12 @@ The scripts in this repository are written in Python 3.11, and do require additi
 - **`itertools`**: native
 - **`collections`**: native
 
-Most of these libraries do not affect each other, but numpy versions 2.xx.x will cause the visualization window of open3d version 0.18.0 to crash. All non-native libraries can be installed with simple pip commands 
+These python packages can be installed with the included 'requirements.txt' with the following command in the appropriate directory
+```
+pip install -r requirements.txt
+```
+
+Most of these libraries do not affect each other, but numpy versions 2.xx.x will cause the visualization window of open3d version 0.18.0 to crash. 
 
 ## Usage
 To use the code in this repository in a stand-alone manner, simply upload the .stl file of the segment you desire to inspect to the plane_segments folder. Then change the name in the mesh-import portion of the code in any of the scripts to the name of 
