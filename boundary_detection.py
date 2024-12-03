@@ -5,8 +5,12 @@ from PCAClass import PCABounding, Best_Fit_CPP
 import time
 import math
 
-  
+
+#To see the called functions in the Best_Fit_CPP class, see PCAClass.py
+
 s=time.time()
+
+#Import Mesh here!
 segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
 
@@ -71,7 +75,7 @@ line_points1 = segment.point_creator(segment.edge1_cent,segment.edge1_vec, 100)
 line_points2 = segment.point_creator(segment.edge2_cent,segment.edge2_vec, 100)
 
 
-'''
+''' Visualization of interpolated lines
 line_pcd1 = o3d.geometry.PointCloud()
 line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
 line_pcd1.paint_uniform_color([0, 1, 0])
@@ -87,7 +91,7 @@ for i in range(1,n):
    temp_ptc.paint_uniform_color([0, 1-i/(n-1),i/(n-1)])
    intermediate_points+=temp_ptc
 
-o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2,])
+o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2, intermediate_points])
 '''
 
 #Scan_information takes: probe width, scan_line1, scan_line2, and the edge offset (optional)

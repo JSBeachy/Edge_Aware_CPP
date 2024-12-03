@@ -6,6 +6,9 @@ import itertools
 import math
 from PCAClass import PCABounding, Best_Fit_CPP
 
+#If unclear, see boundary_detection.py or PCAClass.py for addition comments. 
+#This prodecural script contains the exact same methods, but in a different form.
+
 def distance_theshold(new_point,cornerpoints):
     #TODO: Link threshold to with the length of primary/secondary axis 
     threshold=20

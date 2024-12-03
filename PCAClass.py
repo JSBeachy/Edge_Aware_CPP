@@ -8,10 +8,12 @@ import math
 class PCABounding:
     tolerance = 1e-5  # Adjust tolerance as needed
 
-    def __init__(self, file):
+    def __init__(self, file): 
+        #Initializes the parent class, core functionality includes importing mesh as o3d object and finding the bounding box and PCA of the mesh
+        #Can be used for any mesh/PCA calculation
         self.relative_file_name=file
         self.mesh=o3d.io.read_triangle_mesh(file)
-        self.mesh.merge_close_vertices(self.tolerance)
+        self.mesh.merge_close_vertices(self.tolerance) #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
         self.bounding_box=self.mesh.get_oriented_bounding_box()
         self.bounding_box.color=([1,0,0])
         self.index_determination()
@@ -20,14 +22,16 @@ class PCABounding:
         self.PCA_Calculation()
     
     def PCA_Calculation(self):
+        #Standard PCA calculation with mean-centered data
         mean=np.mean(self.PCApoints, axis=0)
         centered_points=self.PCApoints-mean
         cov_matrix=np.cov(centered_points.T)
         eigenvals, eigenvecs=np.linalg.eig(cov_matrix)
         idx = eigenvals.argsort()[::-1]  
+        #Add the PCA components to the object as attributes
         self.PCA_eigenvals = eigenvals[idx]
         self.PCA_eigenvecs= eigenvecs[:,idx]
-        for i in range(self.PCA_eigenvecs.shape[1]):
+        for i in range(self.PCA_eigenvecs.shape[1]): #This code ensures the coordiantes point in the positive direction as the PCA vectors are un-signed
             if self.PCA_eigenvecs[:,i].sum()<0:
                 self.PCA_eigenvecs[:,i] *= -1
 
@@ -51,6 +55,7 @@ class PCABounding:
         self.bb_len=self.bounding_box.extent[self.primary_axis_index]
     
     def axis_determination(self):
+        #Adds the PCA results
         self.rot=self.bounding_box.R
         self.cent= self.bounding_box.center 
         self.primary_axis=self.bounding_box.R[:,self.primary_axis_index]
@@ -61,6 +66,8 @@ class PCABounding:
 class Best_Fit_CPP(PCABounding):
 
     def __init__(self, mesh):
+        #Initializes the child Best_Fit_CPP class, which contains all functionality of the PCABoudning parent class with added path planning functionality
+        #Object attributes are declared below (as null) and then assigned in the functions
         super().__init__(mesh)
         self.boundary_vertices_coords=None
         self.PCA_pointsND=None
@@ -88,12 +95,13 @@ class Best_Fit_CPP(PCABounding):
         return boundary_edges
 
     def find_convex_hull(self, num_dim, point_set):
-        #project into 2D
+        #project point_set into N-Dimentions
         self.PCA_pointsND=super().PCA_projection(num_dim, point_set)
         self.hull_index=ConvexHull(self.PCA_pointsND).vertices
+        #Find the ND (will always be 2D) and 3D points of convex hull
         self.hull_verticesND=self.PCA_pointsND[self.hull_index]
         self.hull_vertices=point_set[self.hull_index]
-        #Defines both 2D boundary vertices and 3D vertices
+        #Defines both 2D boundary vertices and 3D vertices in convex hull as object attribues
         return
 
     def find_corner_points(self, number_of_corners=4):
@@ -107,7 +115,7 @@ class Best_Fit_CPP(PCABounding):
             vec2=next_point-curr_point
             linscore.append(self.linearity_score(vec1,vec2))
         noise = np.random.uniform(1e-4, 1e-5, len(linscore)) 
-        linscore=linscore+noise #to avoid issues with exactly matching scores
+        linscore=linscore+noise #Add random noise to avoid issues with exactly matching scores
         paired=sorted(zip(linscore,self.hull_vertices))
         re_ordered_pairs=[coord for score,coord in paired]
         #Take the #corners-least linear points (lowest dot products) as corners
@@ -116,6 +124,7 @@ class Best_Fit_CPP(PCABounding):
         return
     
     def find_primary_scanning_edges(self):
+        #Iterates through all possible "principal edges" that can be made with corner points
         edges=list(itertools.combinations(self.corner_points,2)) #tuples of arrays for valid edges
         edges_lists=[[vertex.tolist() for vertex in edge] for edge in edges]
         edgescore=[]
@@ -128,7 +137,7 @@ class Best_Fit_CPP(PCABounding):
         edgescore=edgescore+noise #to avoid issues with exactly matching scores
         paired=sorted(zip(edgescore, edges_lists), reverse=True) #sort pairwise points by pairings
         re_ordered_pairs=[edge for score,edge in paired] 
-        #returns the edges(lines between corners that) best match the principal axis
+        #returns the edges(lines between corners that) best align with the principal axis
         self.aligned_edges=re_ordered_pairs[:2]
         return
 
@@ -151,23 +160,24 @@ class Best_Fit_CPP(PCABounding):
     
     def fit_line_3d(self, points):
         centroid=np.mean(points, axis=0)
-        #Use SVD to find principal direction in 1D (not)
+        #Use SVD to find principal direction in 1D (not set up to deal with curving segments yet)
         _,_,v=np.linalg.svd(points-centroid)
         direction_vector=v[0]
         return centroid, direction_vector
     
     def point_creator(self, cent, vec, num_points, prop=5):
+        #fills out a vector from the center in both diretions, typically the points are spaced by roughly 1 mm
         length=self.bb_len
         prop_len=int(length/prop)
         points=np.array([cent + t * vec for t in np.linspace(-length/2-prop_len, length/2+prop_len, num_points)])
         return points
     
     def bounding_box_interior_points(self, points):
-        #should take np.array of points
+        #should take np.array of points, finds the points closed to the bounding box, but still inside
         bb_min=self.bounding_box.get_min_bound()
         bb_max=self.bounding_box.get_max_bound()
         p1=np.asarray(points)
-        inside_bbox = (p1 >= bb_min) & (p1 <= bb_max) #& for element-wise logic in numpy
+        inside_bbox = (p1 >= bb_min) & (p1 <= bb_max) # & for element-wise logic in numpy
         within_bbox = np.all(inside_bbox, axis=1)
         filtered_points=p1[within_bbox]
         if filtered_points.size > 0:
@@ -179,14 +189,16 @@ class Best_Fit_CPP(PCABounding):
             return None 
     
     def scan_width_determination(self,line_pcd1,line_pcd2):
+        #Find the points on each line closest to bounding box boundaries
         p0_0,p0_1=self.bounding_box_interior_points(line_pcd1)
         p1_0,p1_1=self.bounding_box_interior_points(line_pcd2)
-        #calculate all between other two corners for each point, take third distance (primary axis distance should be largest 2)
+        #Calculate all between other two corners for each point, take third distance (primary axis distance should be largest 2)
         scan_width=[np.linalg.norm(p0_0-p1_0),np.linalg.norm(p0_1-p1_1), np.linalg.norm(p0_0-p1_1),np.linalg.norm(p0_1-p1_0)]
         print(scan_width)
         return sorted(scan_width)[-3]
     
     def print_scan_information(self):
+        #Prints the Scan details to main console
         print(f"Total width to be scanned: {self.tot_width}")
         print(f"Width allocated to each pass: {self.per_pass_width}")
         print(f"Number of total passes: {self.tot_passes}")
@@ -195,12 +207,14 @@ class Best_Fit_CPP(PCABounding):
         print(f"Approximate pass width after setting edges: {self.real_per_pass_width}")
 
     def scan_information(self, probe_width, scan_line1, scan_line2, edge_offset=None):
+        #calculates the necessary number of passes for the width, and the resulting real-pass width
         if type(probe_width)==int or type(probe_width)==float:
             self.probe_width=probe_width
         else:
             print("Invalid probe width entered")
         half_probe=self.probe_width/2
         
+        #Finds width of scan (only at corner points, should be fine for linear fits, wouldn't work for curved scanning edges)
         self.tot_width=self.scan_width_determination(scan_line1,scan_line2)
         self.tot_passes=math.ceil(self.tot_width/self.probe_width)
         self.per_pass_width=round(self.tot_width/self.tot_passes,2)
@@ -223,6 +237,7 @@ class Best_Fit_CPP(PCABounding):
         interp_two=(self.tot_width-self.probe_width)-self.real_per_pass_width/2
 
     def shift_direction(self):
+        #Shifts both edges "in" along the secondary axis by one 1/2 probe width
         direction1=self.edge1_cent-self.cent
         direction2=self.edge2_cent-self.cent
         dot_1=np.dot(direction1/np.linalg.norm(direction1),self.secondary_axis)
@@ -246,7 +261,6 @@ class Best_Fit_CPP(PCABounding):
             else:
                 lines.append(interp_one*(1-(i-1)/(passes_left-1))+interp_two*((i-1)/(passes_left-1)))
         '''
-
         #Option 2 (Option 3 from Num_pass_calc - Direct interpolation)
         #line_one, line_last are the edge_offset edges, this returns lines of paths
         color_one=np.asarray([0, 1, 0])

@@ -7,10 +7,11 @@ probe_width=75
 tot_passes=math.ceil(tot_length/probe_width)
 per_pass_width=round(tot_length/tot_passes,2)
 
-print(per_pass_width)
-print(probe_width/2)
+print(f"Probe width: {probe_width}")
+print(f"Per-pass width: {per_pass_width}")
 
-# #setting no edge
+# Setting no edges
+
 # benchmark=[]
 # for i in range(tot_passes):
 #     if i==0:
@@ -30,7 +31,8 @@ print(probe_width/2)
 # print(f"Percent reduncant coverage of interiror passes: {round(100*overlap*2/probe_width,2)}%")
 
 
-# #setting one edge
+# Setting one edge
+
 # benchmark=[]
 # for i in range(tot_passes):
 #     if i==0:
@@ -43,7 +45,7 @@ print(probe_width/2)
 # print(benchmark)
 # print(tot_length-benchmark[-1])
 
-#setting both edges
+# Setting both edges
 offset_one=probe_width/2
 offset_two=tot_length-offset_one
 
