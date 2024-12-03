@@ -13,7 +13,7 @@ The second path-planning method is the naive method. This method differs from th
 The other files in the repository are auxiliary. Num_pass_calc.py explores the necessary number of passes needed to completely inspect a part, including the spacing of each pass for various edge-offsetting processes. The plane_segments folder contains a variety of .stl files, each a planar segment from a real scan taken of our spar. Finally, the segmentscan.rdk is a RoboDK file, containing the RoboDK station and is needed to interface with the RoboDK API.
 
 ## Installation
-The scripts in this repository are written in Python 3.11, and do require additional external libraries not native to Python. The libaries, and the version confirmed to integrate with all other libraries are listed here:
+The scripts in this repository are written in Python 3.11 and require additional external libraries that are not native to Python. The libraries and the version confirmed to integrate with all other libraries are listed here:
 
 - **`open3d`**: version 0.18.0
 - **`numpy`**: version 1.26.4
@@ -24,7 +24,7 @@ The scripts in this repository are written in Python 3.11, and do require additi
 - **`itertools`**: native
 - **`collections`**: native
 
-These python packages can be installed with the included 'requirements.txt' with the following command in the appropriate directory
+These Python packages can be installed with the included 'requirements.txt' with the following command in the appropriate directory.
 ```
 pip install -r requirements.txt
 ```
