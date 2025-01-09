@@ -279,6 +279,55 @@ class Best_Fit_CPP(PCABounding):
                 color.append(color_one*(1-(i)/(self.tot_passes-1))+color_two*((i)/(self.tot_passes-1)))
         
         return lines, color
+    
+    def scanned_area(self, trial_lines, probe_width, probe_height):
+        """
+        Marks triangles in the mesh that are within the rectangular probe coverage area.
+        
+        Parameters:
+        - trial_lines: List of arrays, each containing the points of a trial line.
+        - probe_width: Float, the width of the rectangular probe coverage area.
+        - probe_height: Float, the height of the rectangular probe coverage area.
+        """
+        # Convert mesh to triangle representation
+        t_mesh = o3d.t.geometry.TriangleMesh.from_legacy(self.mesh)
+        triangles= t_mesh.triangle.indices.numpy()
+        vertices = t_mesh.vertex.positions.numpy()
+
+        # Initialize triangle colors (default to light gray)
+        colors = np.zeros((len(triangles), 3)) + 0.8
+
+        # Define half-dimensions for rectangular coverage
+        half_width = probe_width / 2
+        half_height = probe_height / 2
+
+        # Iterate through trial lines
+        for line in trial_lines:
+            line = np.asarray(line)
+            for point in line:
+                # Define bounds of the rectangular prism
+                x_min, x_max = point[0] - half_width, point[0] + half_width
+                y_min, y_max = point[1] - half_height, point[1] + half_height
+                z_min, z_max = point[2] - half_width, point[2] + half_width  # Assuming square cross-section
+
+                # Check each triangle
+                for triangle_index, triangle in enumerate(triangles):
+                    tri_vertices = vertices[triangle]
+                    # Check if any vertex of the triangle falls within the prism
+                    for vertex in tri_vertices:
+                        if (
+                            x_min <= vertex[0] <= x_max and
+                            y_min <= vertex[1] <= y_max and
+                            z_min <= vertex[2] <= z_max
+                        ):
+                            colors[triangle_index] = [1, 0, 0]  # Mark as scanned (red)
+                            break  # No need to check further vertices
+
+        # Apply the colors to the mesh
+         #t_mesh.triangle.material_ids = None  # Reset material IDs
+        t_mesh.triangle.colors = o3d.core.Tensor(colors, dtype=o3d.core.Dtype.Float32)
+        return t_mesh
+
 
         
 #plane=o3d.io.read_triangle_mesh('plane_segments\plane_segment_8_mesh.stl')

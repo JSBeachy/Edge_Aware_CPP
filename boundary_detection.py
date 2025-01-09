@@ -47,16 +47,16 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 #Least linear groups are centered on corner point
 segment.find_corner_points()
 
-#2D plot of convex hull and corner points
-plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
-plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
-plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
-plt.xlabel("X-coordinate", fontweight="bold",fontsize=14)
-plt.ylabel("Y-coordinate", fontweight="bold",fontsize=14)
-plt.legend(prop={'size': 14, 'weight': 'bold'})
-plt.xticks(fontsize=11, fontweight='bold')
-plt.yticks(fontsize=11, fontweight='bold')
-plt.show()
+# #2D plot of convex hull and corner points
+# plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
+# plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
+# plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
+# plt.xlabel("X-coordinate", fontweight="bold",fontsize=14)
+# plt.ylabel("Y-coordinate", fontweight="bold",fontsize=14)
+# plt.legend(prop={'size': 14, 'weight': 'bold'})
+# plt.xticks(fontsize=11, fontweight='bold')
+# plt.yticks(fontsize=11, fontweight='bold')
+# plt.show()
 
 ## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
 segment.find_primary_scanning_edges()
@@ -110,11 +110,22 @@ line_last=np.asarray(line_points2) + segment.offset_dir*shift_vec
 lines,color=segment.line_interpolator(line_one,line_last)
 color_arrays = [np.array(color) * np.ones((lines[1].shape[0], 1)) for points, color in zip(lines, color)]
 
+#Add 10 mm to each point's z-coordinate in the trial lines; TODO: add triangle normal component
+adjusted_lines = [line + np.array([0, 0, 10]) for line in lines]
 e=time.time()
 print(f"{round(e-s,3)} seconds run time")
 
 #Final visualization
 trial=o3d.geometry.PointCloud()
-trial.points=o3d.utility.Vector3dVector(np.vstack(lines))
+trial.points=o3d.utility.Vector3dVector(np.vstack(adjusted_lines))
 trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
 o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd])
+
+# Define probe dimensions
+probe_width = 20  # Adjust based on your probe's dimensions
+probe_height = 10
+
+scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_height)
+legacy_mesh = scanned_mesh.to_legacy()
+# Visualize
+o3d.visualization.draw([scanned_mesh], show_ui=True)
