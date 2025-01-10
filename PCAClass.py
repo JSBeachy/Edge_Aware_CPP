@@ -280,7 +280,7 @@ class Best_Fit_CPP(PCABounding):
         
         return lines, color
     
-    def scanned_area(self, trial_lines, probe_width, probe_height):
+    def scanned_area(self, trial_lines, probe_width, probe_length):
         """
         Marks triangles in the mesh that are within the rectangular probe coverage area.
         
@@ -299,7 +299,7 @@ class Best_Fit_CPP(PCABounding):
 
         # Define half-dimensions for rectangular coverage
         half_width = probe_width / 2
-        half_height = probe_height / 2
+        half_length = probe_length / 2
 
         # Iterate through trial lines
         for line in trial_lines:
@@ -307,7 +307,7 @@ class Best_Fit_CPP(PCABounding):
             for point in line:
                 # Define bounds of the rectangular prism
                 x_min, x_max = point[0] - half_width, point[0] + half_width
-                y_min, y_max = point[1] - half_height, point[1] + half_height
+                y_min, y_max = point[1] - half_length, point[1] + half_length
                 z_min, z_max = point[2] - half_width, point[2] + half_width  # Assuming square cross-section
 
                 # Check each triangle
@@ -317,8 +317,8 @@ class Best_Fit_CPP(PCABounding):
                     for vertex in tri_vertices:
                         if (
                             x_min <= vertex[0] <= x_max and
-                            y_min <= vertex[1] <= y_max and
-                            z_min <= vertex[2] <= z_max
+                            y_min <= vertex[1] <= y_max #and
+                            #z_min <= vertex[2] <= z_max
                         ):
                             colors[triangle_index] = [1, 0, 0]  # Mark as scanned (red)
                             break  # No need to check further vertices

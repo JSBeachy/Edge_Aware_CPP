@@ -122,10 +122,10 @@ trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
 o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd])
 
 # Define probe dimensions
-probe_width = 20  # Adjust based on your probe's dimensions
-probe_height = 10
+probe_width = 10  # Direction of Scanning
+probe_length = 30 # Direction perp to scanning
 
-scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_height)
+scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_length)
 legacy_mesh = scanned_mesh.to_legacy()
 # Visualize
-o3d.visualization.draw([scanned_mesh], show_ui=True)
+o3d.visualization.draw([scanned_mesh, trial], show_ui=True)
