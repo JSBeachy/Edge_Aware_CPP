@@ -308,7 +308,7 @@ class Best_Fit_CPP(PCABounding):
                 # Define bounds of the rectangular prism
                 x_min, x_max = point[0] - half_width, point[0] + half_width
                 y_min, y_max = point[1] - half_length, point[1] + half_length
-                z_min, z_max = point[2] - half_width, point[2] + half_width  # Assuming square cross-section
+                z_min, z_max = point[2] - half_width, point[2] + half_width  # not implemented yet
 
                 # Check each triangle
                 for triangle_index, triangle in enumerate(triangles):

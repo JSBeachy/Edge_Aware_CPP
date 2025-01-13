@@ -123,7 +123,7 @@ o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, bou
 
 # Define probe dimensions
 probe_width = 10  # Direction of Scanning
-probe_length = 30 # Direction perp to scanning
+probe_length = 50 # Direction perp to scanning
 
 scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_length)
 legacy_mesh = scanned_mesh.to_legacy()
