@@ -12,6 +12,7 @@ s=time.time()
 
 #Import Mesh here!
 segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
+#segment=Best_Fit_CPP("plane_segments\plane_segment_1_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
