@@ -5,7 +5,6 @@ from PCAClass import PCABounding, Best_Fit_CPP
 import time
 import math
 
-
 #To see the called functions in the Best_Fit_CPP class, see PCAClass.py
 
 s=time.time()
@@ -75,8 +74,11 @@ segment.edge2_cent,segment.edge2_vec=segment.fit_line_3d(group2)
 line_points1 = segment.point_creator(segment.edge1_cent,segment.edge1_vec, 100)
 line_points2 = segment.point_creator(segment.edge2_cent,segment.edge2_vec, 100)
 
+if np.linalg.norm(line_points1[0]-line_points2[0])>np.linalg.norm(line_points1[0]-line_points2[-1]):
+    line_points2=line_points2[::-1]
 
-''' Visualization of interpolated lines
+
+'''# Visualization of interpolated lines
 line_pcd1 = o3d.geometry.PointCloud()
 line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
 line_pcd1.paint_uniform_color([0, 1, 0])
@@ -122,6 +124,7 @@ trial.points=o3d.utility.Vector3dVector(np.vstack(adjusted_lines))
 trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
 o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd])
 
+'''
 # Define probe dimensions
 probe_width = 10  # Direction of Scanning
 probe_length = 50 # Direction perp to scanning
@@ -130,3 +133,4 @@ scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_length)
 legacy_mesh = scanned_mesh.to_legacy()
 # Visualize
 o3d.visualization.draw([scanned_mesh, trial], show_ui=True)
+'''

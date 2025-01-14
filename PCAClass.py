@@ -132,7 +132,6 @@ class Best_Fit_CPP(PCABounding):
         for index,val in enumerate(edges):
             vec1=val[1]-val[0]
             edgescore.append(self.linearity_score(vec1,vec2))
-        
         noise = np.random.uniform(1e-4, 1e-5, len(edgescore)) 
         edgescore=edgescore+noise #to avoid issues with exactly matching scores
         paired=sorted(zip(edgescore, edges_lists), reverse=True) #sort pairwise points by pairings
@@ -232,9 +231,6 @@ class Best_Fit_CPP(PCABounding):
         else:
             self.offset_one=edge_offset
             offset_two=self.tot_width-self.offset_one
-        #relics of Num_Pass_Calc.py
-        interp_one=self.probe_width+self.real_per_pass_width/2
-        interp_two=(self.tot_width-self.probe_width)-self.real_per_pass_width/2
 
     def shift_direction(self):
         #Shifts both edges "in" along the secondary axis by one 1/2 probe width
