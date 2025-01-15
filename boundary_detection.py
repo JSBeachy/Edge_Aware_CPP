@@ -10,10 +10,10 @@ import math
 s=time.time()
 
 #Import Mesh here!
-#segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
+segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_1_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
-segment=Best_Fit_CPP("plane_segments\Hyper_meshed_noise.stl")
+#segment=Best_Fit_CPP("plane_segments\Hyper_meshed_noise.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
 segment.mesh.compute_adjacency_list()
@@ -47,14 +47,11 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 #Compare linearity of groups of 3 consecutive hull points. 
 #Least linear groups are centered on corner point
 segment.find_corner_points()
-print(segment.PCA_eigenvecs)
-print(segment.PCA_eigenvals)
 #print(segment.hull_vertices)
 
 # #2D plot of convex hull and corner points
 plt.plot(segment.PCA_pointsND[:,segment.primary_axis_index], segment.PCA_pointsND[:,segment.secondary_axis_index], 'o', label='Edge points')
 plt.plot(segment.hull_verticesND[:,segment.primary_axis_index],segment.hull_verticesND[:,segment.secondary_axis_index], "r*",markersize=10,label="Convex Hull")
-#put the corner_points in the 2D projection space too
 plt.plot(np.array(segment.corner_pointsND)[:,0],np.array(segment.corner_pointsND)[:,1], 'y*',markersize=20,label='Corner Points')
 plt.xlabel("Principle Axis", fontweight="bold",fontsize=14)
 plt.ylabel("Secondary Axis", fontweight="bold",fontsize=14)
@@ -70,8 +67,9 @@ segment.find_primary_scanning_edges()
 hull_vertices_list=[vertex.tolist() for vertex in segment.hull_vertices]
 primary_edge=segment.aligned_edges[0]
 secondary_edge=segment.aligned_edges[1]
-group1=segment.splitting(len(hull_vertices_list), primary_edge, hull_vertices_list)
-group2=segment.splitting(len(hull_vertices_list), secondary_edge, hull_vertices_list)
+group1=segment.splitting(primary_edge, hull_vertices_list)
+group2=segment.splitting(secondary_edge, hull_vertices_list)
+
 #Find the 1D fitting (line) of points
 segment.edge1_cent,segment.edge1_vec=segment.fit_line_3d(group1)
 segment.edge2_cent,segment.edge2_vec=segment.fit_line_3d(group2)
@@ -83,24 +81,24 @@ if np.linalg.norm(line_points1[0]-line_points2[0])>np.linalg.norm(line_points1[0
     line_points2=line_points2[::-1]
 
 
-'''# Visualization of interpolated lines
-line_pcd1 = o3d.geometry.PointCloud()
-line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
-line_pcd1.paint_uniform_color([0, 1, 0])
-line_pcd2 = o3d.geometry.PointCloud()
-line_pcd2.points = o3d.utility.Vector3dVector(line_points2)
-line_pcd2.paint_uniform_color([0, 0, 1])
-#Code for Interpolating lines
-intermediate_points=o3d.geometry.PointCloud()
-n=5
-for i in range(1,n):
-   temp_ptc=o3d.geometry.PointCloud()
-   temp_ptc.points=o3d.utility.Vector3dVector(np.asarray(line_pcd1.points)*(1-i/(n-1))+np.asarray(line_pcd2.points)*(i/(n-1)))
-   temp_ptc.paint_uniform_color([0, 1-i/(n-1),i/(n-1)])
-   intermediate_points+=temp_ptc
+# # Visualization of interpolated lines
+# line_pcd1 = o3d.geometry.PointCloud()
+# line_pcd1.points = o3d.utility.Vector3dVector(line_points1)
+# line_pcd1.paint_uniform_color([0, 1, 0])
+# line_pcd2 = o3d.geometry.PointCloud()
+# line_pcd2.points = o3d.utility.Vector3dVector(line_points2)
+# line_pcd2.paint_uniform_color([0, 0, 1])
+# #Code for Interpolating lines
+# intermediate_points=o3d.geometry.PointCloud()
+# n=5
+# for i in range(1,n):
+#    temp_ptc=o3d.geometry.PointCloud()
+#    temp_ptc.points=o3d.utility.Vector3dVector(np.asarray(line_pcd1.points)*(1-i/(n-1))+np.asarray(line_pcd2.points)*(i/(n-1)))
+#    temp_ptc.paint_uniform_color([0, 1-i/(n-1),i/(n-1)])
+#    intermediate_points+=temp_ptc
 
-o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2, intermediate_points])
-'''
+# o3d.visualization.draw_geometries([segment.mesh, segment.bounding_box, boundary_pcd, line_pcd1, line_pcd2, intermediate_points])
+
 
 #Scan_information takes: probe width, scan_line1, scan_line2, and the edge offset (optional)
 segment.scan_information(64, line_points1, line_points2,)

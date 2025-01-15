@@ -27,7 +27,6 @@ class PCABounding:
         centered_points=self.PCApoints-mean
         cov_matrix=np.cov(centered_points.T)
         eigenvals, eigenvecs=np.linalg.eig(cov_matrix)
-        print(eigenvals)
         idx = eigenvals.argsort()[::-1]  
         #Add the PCA components to the object as attributes
         self.PCA_eigenvals = eigenvals[idx]
@@ -150,16 +149,42 @@ class Best_Fit_CPP(PCABounding):
         cos_theta= np.dot(vec1,vec2) / (np.linalg.norm(vec1)*np.linalg.norm(vec2))
         return abs(cos_theta)
 
-    def splitting(self, len_my_list, edge_list, hull_vertices_list):
+    def splitting(self, edge_list, hull_vertices_list):
             #splits the points between the two relevant corner points
-            direction=1
+            len_my_list=len(hull_vertices_list)
+            direction=-1
             index=sorted([hull_vertices_list.index(i) for i in edge_list])
-            counterclockwise = (index[0] - index[1]) % len_my_list
-            clockwise = (index[1] - index[0]) % len_my_list
+            print(len_my_list)
+            print(index)
+            dir1_len = (index[0] - index[1]) % len_my_list
+            dir2_len = (index[1] - index[0]) % len_my_list
+            print(f"base point at: {edge_list[0]}")
+            print(f"length around dir2 direction: {dir2_len}")
+            print(f"length around dir1 direction: {dir1_len}")
+            ''' #Old-way of doing this based on num. points between in each direction
             length=min(clockwise,counterclockwise)
             if counterclockwise<=clockwise:
                 direction=-1
             group=[hull_vertices_list[(index[0] + i*direction)] for i in range(length+1)]
+            '''
+            true_vec=np.asarray(edge_list[1])-np.asarray(edge_list[0])
+            print(true_vec)
+            midpoint2=(index[0]+((index[1]-index[0]+1)%len_my_list)//2)%len_my_list 
+            midpoint1=(index[1]+((index[0]-index[1]+1)%len_my_list)//2)%len_my_list 
+            print(f"midpoint in dir2 direction is {midpoint2}")
+            print(f"midpoint in dir1 direction is {midpoint1}")
+            vector1=np.asarray(hull_vertices_list[midpoint1])-np.asarray(edge_list[0])
+            vector2=np.asarray(hull_vertices_list[midpoint2])-np.asarray(edge_list[0])
+            print(vector1, vector2)
+            direction1=self.linearity_score(true_vec,vector1)
+            direction2=self.linearity_score(true_vec,vector2)
+            print(f"linearity in dir1: {direction1}, linearity in dir2 {direction2} ")
+            if direction1<direction2:
+                direction=1
+                group=[hull_vertices_list[(index[0] + i*direction)] for i in range(dir2_len)]
+            else:
+                group=[hull_vertices_list[(index[0] + i*direction)] for i in range(dir1_len)]
+            print(f"group of edge points is {group}")
             return np.asarray(group)
     
     def fit_line_3d(self, points):
