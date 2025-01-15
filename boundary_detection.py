@@ -10,9 +10,10 @@ import math
 s=time.time()
 
 #Import Mesh here!
-segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
+#segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_1_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
+segment=Best_Fit_CPP("plane_segments\Hyper_meshed_noise.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
 segment.mesh.compute_adjacency_list()
@@ -46,17 +47,21 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 #Compare linearity of groups of 3 consecutive hull points. 
 #Least linear groups are centered on corner point
 segment.find_corner_points()
+print(segment.PCA_eigenvecs)
+print(segment.PCA_eigenvals)
+#print(segment.hull_vertices)
 
 # #2D plot of convex hull and corner points
-# plt.plot(segment.PCA_pointsND[:,0], segment.PCA_pointsND[:,1], 'o', label='Edge points')
-# plt.plot(segment.hull_verticesND[:,0],segment.hull_verticesND[:,1], "r*",markersize=10,label="Convex Hull")
-# plt.plot(np.array(segment.corner_points)[:,0],np.array(segment.corner_points)[:,1], 'y*',markersize=20,label='Corner Points')
-# plt.xlabel("X-coordinate", fontweight="bold",fontsize=14)
-# plt.ylabel("Y-coordinate", fontweight="bold",fontsize=14)
-# plt.legend(prop={'size': 14, 'weight': 'bold'})
-# plt.xticks(fontsize=11, fontweight='bold')
-# plt.yticks(fontsize=11, fontweight='bold')
-# plt.show()
+plt.plot(segment.PCA_pointsND[:,segment.primary_axis_index], segment.PCA_pointsND[:,segment.secondary_axis_index], 'o', label='Edge points')
+plt.plot(segment.hull_verticesND[:,segment.primary_axis_index],segment.hull_verticesND[:,segment.secondary_axis_index], "r*",markersize=10,label="Convex Hull")
+#put the corner_points in the 2D projection space too
+plt.plot(np.array(segment.corner_pointsND)[:,0],np.array(segment.corner_pointsND)[:,1], 'y*',markersize=20,label='Corner Points')
+plt.xlabel("Principle Axis", fontweight="bold",fontsize=14)
+plt.ylabel("Secondary Axis", fontweight="bold",fontsize=14)
+plt.legend(prop={'size': 14, 'weight': 'bold'})
+plt.xticks(fontsize=11, fontweight='bold')
+plt.yticks(fontsize=11, fontweight='bold')
+plt.show()
 
 ## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
 segment.find_primary_scanning_edges()
@@ -111,26 +116,30 @@ line_last=np.asarray(line_points2) + segment.offset_dir*shift_vec
 
 #Get official lines returned; with consideration for number of passes
 lines,color=segment.line_interpolator(line_one,line_last)
-color_arrays = [np.array(color) * np.ones((lines[1].shape[0], 1)) for points, color in zip(lines, color)]
+color_arrays = [np.array(color) * np.ones((lines[0].shape[0], 1)) for points, color in zip(lines, color)]
 
 #Add 10 mm to each point's z-coordinate in the trial lines; TODO: add triangle normal component
 adjusted_lines = [line + np.array([0, 0, 10]) for line in lines]
 e=time.time()
 print(f"{round(e-s,3)} seconds run time")
 
-#Final visualization
+#Path visualization
 trial=o3d.geometry.PointCloud()
 trial.points=o3d.utility.Vector3dVector(np.vstack(adjusted_lines))
 trial.colors=o3d.utility.Vector3dVector(np.vstack(color_arrays))
 o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd])
 
 '''
+s1=time.time()
 # Define probe dimensions
 probe_width = 10  # Direction of Scanning
 probe_length = 50 # Direction perp to scanning
 
+
 scanned_mesh = segment.scanned_area(adjusted_lines, probe_width, probe_length)
 legacy_mesh = scanned_mesh.to_legacy()
 # Visualize
+e1=time.time()
 o3d.visualization.draw([scanned_mesh, trial], show_ui=True)
+print(f"Scan calculation time: {e1-s1}")
 '''

@@ -27,6 +27,7 @@ class PCABounding:
         centered_points=self.PCApoints-mean
         cov_matrix=np.cov(centered_points.T)
         eigenvals, eigenvecs=np.linalg.eig(cov_matrix)
+        print(eigenvals)
         idx = eigenvals.argsort()[::-1]  
         #Add the PCA components to the object as attributes
         self.PCA_eigenvals = eigenvals[idx]
@@ -88,6 +89,7 @@ class Best_Fit_CPP(PCABounding):
 
     def boundary_edge_finder(self):
         # o3d.get_non_manifold_edges() is roughly 4x faster, if possible use it
+        # this function is not included in main script
         triangles=np.asarray(self.mesh.triangles)
         edges = [tuple(sorted((triangle[i], triangle[j]))) for triangle in triangles for i, j in [(0, 1), (1, 2), (2, 0)]]       
         self.edge_counts=Counter(edges)
@@ -117,10 +119,13 @@ class Best_Fit_CPP(PCABounding):
         noise = np.random.uniform(1e-4, 1e-5, len(linscore)) 
         linscore=linscore+noise #Add random noise to avoid issues with exactly matching scores
         paired=sorted(zip(linscore,self.hull_vertices))
+        pairedND=sorted(zip(linscore,self.hull_verticesND))
         re_ordered_pairs=[coord for score,coord in paired]
+        re_ordered_pairsND=[coord for score,coord in pairedND]
         #Take the #corners-least linear points (lowest dot products) as corners
         #Returns corner points in 3D, for ND, would need to re-calculate paired
         self.corner_points=re_ordered_pairs[:number_of_corners]
+        self.corner_pointsND=re_ordered_pairsND[:number_of_corners]
         return
     
     def find_primary_scanning_edges(self):
@@ -193,7 +198,7 @@ class Best_Fit_CPP(PCABounding):
         p1_0,p1_1=self.bounding_box_interior_points(line_pcd2)
         #Calculate all between other two corners for each point, take third distance (primary axis distance should be largest 2)
         scan_width=[np.linalg.norm(p0_0-p1_0),np.linalg.norm(p0_1-p1_1), np.linalg.norm(p0_0-p1_1),np.linalg.norm(p0_1-p1_0)]
-        print(scan_width)
+        #print(scan_width)
         return sorted(scan_width)[-3]
     
     def print_scan_information(self):
