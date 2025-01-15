@@ -10,9 +10,9 @@ import math
 s=time.time()
 
 #Import Mesh here!
-segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
+#segment=Best_Fit_CPP("plane_segments\plane_segment_8_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\plane_segment_1_mesh.stl")
-#segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
+segment=Best_Fit_CPP("plane_segments\plane_segment_7_mesh.stl")
 #segment=Best_Fit_CPP("plane_segments\Hyper_meshed_noise.stl")
 
 # Ensure the mesh has edges and triangle information for visualization
@@ -49,16 +49,16 @@ segment.find_convex_hull(2, segment.boundary_vertices_coords)
 segment.find_corner_points()
 #print(segment.hull_vertices)
 
-# #2D plot of convex hull and corner points
-plt.plot(segment.PCA_pointsND[:,segment.primary_axis_index], segment.PCA_pointsND[:,segment.secondary_axis_index], 'o', label='Edge points')
-plt.plot(segment.hull_verticesND[:,segment.primary_axis_index],segment.hull_verticesND[:,segment.secondary_axis_index], "r*",markersize=10,label="Convex Hull")
-plt.plot(np.array(segment.corner_pointsND)[:,0],np.array(segment.corner_pointsND)[:,1], 'y*',markersize=20,label='Corner Points')
-plt.xlabel("Principle Axis", fontweight="bold",fontsize=14)
-plt.ylabel("Secondary Axis", fontweight="bold",fontsize=14)
-plt.legend(prop={'size': 14, 'weight': 'bold'})
-plt.xticks(fontsize=11, fontweight='bold')
-plt.yticks(fontsize=11, fontweight='bold')
-plt.show()
+# # #2D plot of convex hull and corner points
+# plt.plot(segment.PCA_pointsND[:,segment.primary_axis_index], segment.PCA_pointsND[:,segment.secondary_axis_index], 'o', label='Edge points')
+# plt.plot(segment.hull_verticesND[:,segment.primary_axis_index],segment.hull_verticesND[:,segment.secondary_axis_index], "r*",markersize=10,label="Convex Hull")
+# plt.plot(np.array(segment.corner_pointsND)[:,0],np.array(segment.corner_pointsND)[:,1], 'y*',markersize=20,label='Corner Points')
+# plt.xlabel("Principle Axis", fontweight="bold",fontsize=14)
+# plt.ylabel("Secondary Axis", fontweight="bold",fontsize=14)
+# plt.legend(prop={'size': 14, 'weight': 'bold'})
+# plt.xticks(fontsize=11, fontweight='bold')
+# plt.yticks(fontsize=11, fontweight='bold')
+# plt.show()
 
 ## Determine what "edge" (aka between corners) aligns best with the primary scanning axis
 segment.find_primary_scanning_edges()
@@ -73,6 +73,7 @@ group2=segment.splitting(secondary_edge, hull_vertices_list)
 #Find the 1D fitting (line) of points
 segment.edge1_cent,segment.edge1_vec=segment.fit_line_3d(group1)
 segment.edge2_cent,segment.edge2_vec=segment.fit_line_3d(group2)
+
 #Form the array of points that make up the line
 line_points1 = segment.point_creator(segment.edge1_cent,segment.edge1_vec, 100)
 line_points2 = segment.point_creator(segment.edge2_cent,segment.edge2_vec, 100)
