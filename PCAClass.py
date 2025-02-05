@@ -1,6 +1,6 @@
 import open3d as o3d
 import numpy as np
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, KDTree
 from collections import Counter
 import itertools
 import math
@@ -14,12 +14,15 @@ class PCABounding:
         self.relative_file_name=file
         self.mesh=o3d.io.read_triangle_mesh(file)
         self.mesh.merge_close_vertices(self.tolerance) #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
-        self.bounding_box=self.mesh.get_oriented_bounding_box()
+        #self.bounding_box=self.mesh.get_oriented_bounding_box()
+        self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
         self.bounding_box.color=([1,0,0])
         self.index_determination()
         self.axis_determination()
         self.PCApoints=np.asarray(self.mesh.vertices)
         self.PCA_Calculation()
+        self.points=np.asarray(self.mesh.vertices)
+        self.kd_tree=KDTree(self.points)
     
     def PCA_Calculation(self):
         #Standard PCA calculation with mean-centered data
@@ -85,6 +88,8 @@ class Best_Fit_CPP(PCABounding):
         self.read_distance=None
         self.edge_offset=None
         self.offset_dir=None
+        self.scan_lines=None
+        self.colors= np.full((self.points.shape[0], 3), (1,0,0))
 
     def boundary_edge_finder(self):
         # o3d.get_non_manifold_edges() is roughly 4x faster, if possible use it
@@ -154,8 +159,6 @@ class Best_Fit_CPP(PCABounding):
             len_my_list=len(hull_vertices_list)
             direction=-1
             index=sorted([hull_vertices_list.index(i) for i in edge_list])
-            print(len_my_list)
-            print(index)
             dir1_len = (index[0] - index[1]) % len_my_list +1
             dir2_len = (index[1] - index[0]) % len_my_list +1
 
@@ -317,9 +320,56 @@ class Best_Fit_CPP(PCABounding):
             for i in range(self.tot_passes):
                 lines.append(line_one*(1-(i)/(self.tot_passes-1))+line_last*((i)/(self.tot_passes-1)))
                 color.append(color_one*(1-(i)/(self.tot_passes-1))+color_two*((i)/(self.tot_passes-1)))
-        
+        self.scan_lines=lines
         return lines, color
     
+    def compute_average_normal_t(self, mesh, triangle_index):
+            #From Scantoplan
+            triangles = mesh.triangle['indices']
+            normals = mesh.triangle['normals']
+            # Get the vertices of the target triangle
+            target_triangle = triangles[triangle_index].numpy()
+            # Find neighboring triangles (those sharing any vertex with the target triangle)
+            mask = np.isin(triangles.numpy(), target_triangle).any(axis=1)
+            # Get the normals of the neighboring triangles
+            neighboring_normals = normals[mask]
+            # Compute the average normal
+            average_normal = neighboring_normals.mean(dim=0)
+            # Normalize the average normal
+            average_normal_np = average_normal.numpy()
+            norm = np.linalg.norm(average_normal_np)
+            average_normal = average_normal_np / norm
+            return average_normal
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     def scanned_area(self, trial_lines, probe_width, probe_length):
         """
         Marks triangles in the mesh that are within the rectangular probe coverage area.
@@ -344,6 +394,7 @@ class Best_Fit_CPP(PCABounding):
         # Iterate through trial lines
         for line in trial_lines:
             line = np.asarray(line)
+            print(len(line))
             for point in line:
                 # Define bounds of the rectangular prism
                 x_min, x_max = point[0] - half_width, point[0] + half_width
