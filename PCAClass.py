@@ -14,8 +14,8 @@ class PCABounding:
         self.relative_file_name=file
         self.mesh=o3d.io.read_triangle_mesh(file)
         self.mesh.merge_close_vertices(self.tolerance) #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
-        #self.bounding_box=self.mesh.get_oriented_bounding_box()
-        self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
+        self.bounding_box=self.mesh.get_oriented_bounding_box()
+        #self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
         self.bounding_box.color=([1,0,0])
         self.index_determination()
         self.axis_determination()
