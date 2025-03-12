@@ -19,7 +19,6 @@ segment=Best_Fit_CPP("plane_segments\Concave.stl")
 #segment=Best_Fit_CPP("plane_segments\Convex.stl")
 #segment=Best_Fit_CPP("plane_segments\BigL.stl")
 #segment=Best_Fit_CPP("plane_segments\Curvy.stl")
-#segment=Best_Fit_CPP("plane_segments\Curvy.stl")
 #segment=Best_Fit_CPP("plane_segments\surjective_xz.stl")
 
 
@@ -64,9 +63,19 @@ boundary_pcd.paint_uniform_color([1,0,0])
 ## Take edge and classify all points between as point to best-fit 
 segment.edge_fitter(segment.edges)
 
+##Fit Check!
+#edge_cp=[segment.edge1_CP,segment.edge2_CP]
+#target_length=5
+#edges=[np.vstack([segment.bezier_curve3N(segment.Bezier_order,t,Pi) for t in segment.find_t_newton(segment.Bezier_order, Pi,target_length)]) for Pi in edge_cp]
+#edge_fit=o3d.geometry.PointCloud()
+#edge_fit.points=o3d.utility.Vector3dVector(np.vstack(edges))
+#o3d.visualization.draw_geometries([segment.mesh, edge_fit])
+
+
 #Determine scanning width and required pass info
 Probe_width=64
-segment.scan_information(Probe_width)
+slice_resolution=10
+segment.scan_information(Probe_width, slice_resolution)
 
 #Prints out relevant information about scan_passes
 segment.print_scan_information()
@@ -80,17 +89,17 @@ segment.edge1_CP=segment.edge1_CP - segment.offset_dir*shift_vec
 segment.edge2_CP=segment.edge2_CP + segment.offset_dir*shift_vec
 
 #Interpolate Bézier Curves
-passes,colors=segment.line_interpolator(10)
+passes,colors=segment.line_interpolator(5)
 
-#Add 10 mm to each point's z-coordinate in the trial lines; TODO: add triangle normal component
+#Add 10 mm to each point's z-coordinate in the trial lines; TODO: could add normal of closes point via kd-tree
 adjusted_lines = np.vstack(passes)+ np.array([0, 0, 10])
 
 
-# #Path visualization
-# trial=o3d.geometry.PointCloud()
-# trial.points=o3d.utility.Vector3dVector(adjusted_lines)
-# trial.colors=o3d.utility.Vector3dVector(np.vstack(colors))
-# o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd ],mesh_show_back_face=True)
+#Path visualization
+trial=o3d.geometry.PointCloud()
+trial.points=o3d.utility.Vector3dVector(adjusted_lines)
+trial.colors=o3d.utility.Vector3dVector(np.vstack(colors))
+o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd ],mesh_show_back_face=True)
 
 
 '''
@@ -106,6 +115,52 @@ o3d.visualization.draw([scanned_mesh, trial], show_ui=True)
 print(f"Scan calculation time: {e1-s1}")
 '''
 start2=time.time()
+redundant=segment.local_scanned_area(Redundancy=True, Elimination=False)
+end=time.time()
+print(f"total time for checking: {end-start2}")
+print(f"Total Path-Planning runtime: {end-start}")
+
+if len(redundant)>0:
+    redundant_points=o3d.geometry.PointCloud()
+    redundant_points.points=o3d.utility.Vector3dVector(np.vstack(redundant))
+    redundant_points.colors=o3d.utility.Vector3dVector(np.full((len(redundant), 3), [1,0,0]))
+    segment.mesh.vertex_colors = o3d.utility.Vector3dVector(segment.colors)
+    o3d.visualization.draw_geometries([segment.mesh, redundant_points],mesh_show_back_face=True)
+else:
+    o3d.visualization.draw_geometries([segment.mesh],mesh_show_back_face=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
 #Format mesh for ray-casting
 tensor_plane = o3d.t.geometry.TriangleMesh.from_legacy(segment.mesh) #OGplane= Surface to Path-Plan on
 tensor_plane.compute_triangle_normals()
@@ -116,10 +171,15 @@ tensor_cast_id = scene.add_triangles(tensor_plane)
 poses=[]
 names=[]
 
+#determine the order the passes are given to the projectulator
+Redundancy_order=segment.pseudo_binary_order(passes)
+
 #direction for ray-casting should be along tertiary axis, but pointing "down"
 unit_direction=np.array(segment.tertiary_axis)*-1
 
-for i, point_set in enumerate(passes):
+redundant=[]
+for index in Redundancy_order:
+    point_set=passes[index]
     direction = unit_direction * np.ones((point_set.shape[0], 1))
     #move points "up" on z axis by max z bb height to ensure projections have intersections
     z_offset=min(segment.bounding_box.extent)*segment.tertiary_axis
@@ -128,7 +188,6 @@ for i, point_set in enumerate(passes):
     LocVec=np.hstack((ray_origins.astype(dtype=np.float32), direction.astype(np.float32)))
     #print(LocVec)
     ans = scene.cast_rays(LocVec)
-
 
     #Calculate "principal vector" for interpolated
     principal_vector=point_set[0]-point_set[-1]
@@ -142,14 +201,18 @@ for i, point_set in enumerate(passes):
     localnames=[]
     #Determine the index of ray-casting to use for RoboDK targets
     index_hits=[p for p,q in enumerate(ans['geometry_ids']) if q==0]
+
     #Numpoints calculation may scale quite inappropriately, this is not refined equation
     #TODO: Test further to determine how useful numpoints actually is 
-    numpoints=5+int(segment.PCA_eigenvals[-1]//10)
+    #numpoints=5+int(segment.PCA_eigenvals[-1]//10)
     #Set first robot pose in roughly 10 mm from edge
-    RoboIndex=np.linspace(index_hits[10],index_hits[-10],numpoints).round().astype(int)
+    #RoboIndex=np.linspace(index_hits[10],index_hits[-10],numpoints).round().astype(int)
     
+    #Default color is red, color_updates calculates on a per-pass basis
     color_updates = np.full((segment.points.shape[0],3), -1.0)
-
+    #Should have two modes: Scan checking and Scan elimination
+    elimination=True
+    
     for i in index_hits:
         dist=ans['t_hit'].numpy()[i]
         delta=dist*segment.tertiary_axis*(-1)
@@ -174,9 +237,15 @@ for i, point_set in enumerate(passes):
             new_seed_point=inv_rotation_matrix@onSurface
             probe_mask = ((new_seed_point[0] - 10 <= new_candidate_points[0]) & (new_candidate_points[0] <= new_seed_point[0] + 10) &
                         (new_seed_point[1] - 32 <= new_candidate_points[1]) & (new_candidate_points[1] <= new_seed_point[1] + 32))
-            
             scanned_points=candidate_indices[probe_mask]
-            color_updates[scanned_points] = [0, 1, 0]
+            if elimination==True:
+                already_scanned_mask = (segment.colors[scanned_points] == [0, 1, 0]).all(axis=1) | (segment.colors[scanned_points] == [0, 0, 1]).all(axis=1)
+                if np.all(already_scanned_mask):
+                    redundant.append(point_set[i])
+                color_updates[scanned_points] = [0, 1, 0]
+            else:
+                color_updates[scanned_points] = [0, 1, 0]
+                
 
     update_mask = color_updates[:, 0] != -1
     already_marked_mask = (segment.colors[:, 0] != 1) 
@@ -184,17 +253,7 @@ for i, point_set in enumerate(passes):
     segment.colors[update_mask] = color_updates[update_mask]
     segment.colors[rescanned_mask]=[0,0,1]
 
-            
 
-
-segment.mesh.vertex_colors = o3d.utility.Vector3dVector(segment.colors)
-end=time.time()
-print(f"total time for checking: {end-start2}")
-print(f"Total Path-Planning runtime: {end-start}")
-o3d.visualization.draw_geometries([segment.mesh],mesh_show_back_face=True)
-
-
-'''
 for k in RoboIndex:
     dist=ans['t_hit'].numpy()[k]
     delta=dist*segment.tertiary_axis*(-1)
