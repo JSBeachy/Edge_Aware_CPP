@@ -15,11 +15,13 @@ start=time.time()
 #segment=Best_Fit_CPP(r"plane_segments\Non-planar.stl")
 #segment=Best_Fit_CPP(r"plane_segments\Bowl.stl")
 #segment=Best_Fit_CPP("plane_segments\Foil.stl")
-segment=Best_Fit_CPP("plane_segments\Concave.stl")
+#segment=Best_Fit_CPP("plane_segments\Concave.stl")
 #segment=Best_Fit_CPP("plane_segments\Convex.stl")
 #segment=Best_Fit_CPP("plane_segments\BigL.stl")
 #segment=Best_Fit_CPP("plane_segments\Curvy.stl")
 #segment=Best_Fit_CPP("plane_segments\surjective_xz.stl")
+segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example.stl")
+#segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
 
 
 # Ensure the mesh has edges and triangle information for visualization
@@ -35,19 +37,15 @@ segment.boundary_edge_calculations()
 # Create a visualization object
 boundary_pcd=o3d.geometry.PointCloud()
 boundary_pcd.points = o3d.utility.Vector3dVector(segment.ordered_edge_points)
-boundary_pcd.paint_uniform_color([1,0,0])
+boundary_pcd.paint_uniform_color([0,0,0])
 
-## Display bounding-box coordinate frame (from PCA)
+# Display bounding-box coordinate frame (from PCA)
 #transform=np.eye(4)
 #PCA_coord_frame=o3d.geometry.TriangleMesh.create_coordinate_frame(size=100.0)
-#Not positive-ized axes
 #transform[:3,:3]=segment.PCA_eigenvecs
 #transform[:3,3]=segment.cent+10*segment.PCA_eigenvecs[segment.tertiary_axis_index]
 #PCA_coord_frame.transform(transform)
 #o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, PCA_coord_frame], mesh_show_back_face=True)
-#print(transform)
-
-
 
 # # #2D plot of convex hull and corner points
 # plt.plot(segment.ordered_edge_points2D[:,segment.primary_axis_index], segment.ordered_edge_points2D[:,segment.secondary_axis_index], 'o', label='Edge points')
@@ -64,17 +62,25 @@ boundary_pcd.paint_uniform_color([1,0,0])
 segment.edge_fitter(segment.edges)
 
 ##Fit Check!
-#edge_cp=[segment.edge1_CP,segment.edge2_CP]
-#target_length=5
-#edges=[np.vstack([segment.bezier_curve3N(segment.Bezier_order,t,Pi) for t in segment.find_t_newton(segment.Bezier_order, Pi,target_length)]) for Pi in edge_cp]
-#edge_fit=o3d.geometry.PointCloud()
-#edge_fit.points=o3d.utility.Vector3dVector(np.vstack(edges))
+edge_cp=[segment.edge1_CP,segment.edge2_CP]
+target_length=20
+edges=[np.vstack([segment.bezier_curve3N(segment.Bezier_order,t,Pi) for t in segment.find_t_newton(segment.Bezier_order, Pi,target_length)]) for Pi in edge_cp]
+color=[[0,1,0],[0,0,1]]
+colors=[col*np.ones((len(edge), 1)) for col, edge in zip(color,edges)]
+edge_fit=o3d.geometry.PointCloud()
+edge_fit.points=o3d.utility.Vector3dVector(np.vstack(edges))
+edge_fit.colors=o3d.utility.Vector3dVector(np.vstack(colors))
+bezier_fit=o3d.geometry.PointCloud()
+bezier_fit.points=o3d.utility.Vector3dVector(np.vstack(segment.edge1_CP))
+bezier_fit.paint_uniform_color([1,0,0])
+segment.fancy_viz([segment.mesh, edge_fit, segment.bounding_box, bezier_fit])
+exit()
 #o3d.visualization.draw_geometries([segment.mesh, edge_fit])
 
 
 #Determine scanning width and required pass info
 Probe_width=64
-slice_resolution=10
+slice_resolution=5
 segment.scan_information(Probe_width, slice_resolution)
 
 #Prints out relevant information about scan_passes
@@ -89,17 +95,18 @@ segment.edge1_CP=segment.edge1_CP - segment.offset_dir*shift_vec
 segment.edge2_CP=segment.edge2_CP + segment.offset_dir*shift_vec
 
 #Interpolate Bézier Curves
-passes,colors=segment.line_interpolator(5)
+passes,colors=segment.line_interpolator(10)
 
 #Add 10 mm to each point's z-coordinate in the trial lines; TODO: could add normal of closes point via kd-tree
 adjusted_lines = np.vstack(passes)+ np.array([0, 0, 10])
 
 
 #Path visualization
-trial=o3d.geometry.PointCloud()
-trial.points=o3d.utility.Vector3dVector(adjusted_lines)
-trial.colors=o3d.utility.Vector3dVector(np.vstack(colors))
-o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd ],mesh_show_back_face=True)
+#trial=o3d.geometry.PointCloud()
+#trial.points=o3d.utility.Vector3dVector(adjusted_lines)
+#trial.colors=o3d.utility.Vector3dVector(np.vstack(colors))
+#segment.fancy_viz([segment.mesh, trial, segment.bounding_box])
+#o3d.visualization.draw_geometries([segment.mesh,segment.bounding_box, trial, boundary_pcd],mesh_show_back_face=True)
 
 
 '''
@@ -123,25 +130,22 @@ print(f"Total Path-Planning runtime: {end-start}")
 if len(redundant)>0:
     redundant_points=o3d.geometry.PointCloud()
     redundant_points.points=o3d.utility.Vector3dVector(np.vstack(redundant))
-    redundant_points.colors=o3d.utility.Vector3dVector(np.full((len(redundant), 3), [1,0,0]))
+    redundant_points.colors=o3d.utility.Vector3dVector(np.full((len(redundant), 3), [1,0.5,0]))
     segment.mesh.vertex_colors = o3d.utility.Vector3dVector(segment.colors)
-    o3d.visualization.draw_geometries([segment.mesh, redundant_points],mesh_show_back_face=True)
+    o3d.visualization.draw_geometries([segment.mesh, redundant_points,],mesh_show_back_face=True)
 else:
-    o3d.visualization.draw_geometries([segment.mesh],mesh_show_back_face=True)
+    pass_points=o3d.geometry.PointCloud()
+    pass_points.points=o3d.utility.Vector3dVector(np.vstack(passes))
+    pass_points.colors=o3d.utility.Vector3dVector(np.vstack(colors))
+    forest_mask= (segment.colors == [0, 1, 0]).all(axis=1)
+    blue_mask=(segment.colors == [0, 0, 1]).all(axis=1)
+    #segment.colors[forest_mask]=np.array([0,0.7,0.3]) 
+    #segment.colors[blue_mask]=np.array([0.10,0.6,0.25])  #[19,71,39]
+    segment.mesh.vertex_colors = o3d.utility.Vector3dVector(segment.colors)
+    segment.fancy_viz([segment.mesh,])
+    #o3d.visualization.draw_geometries([segment.mesh, pass_points, segment.bounding_box],mesh_show_back_face=True)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+#TODO:  need to extend passes past bezier cures
 
 
 

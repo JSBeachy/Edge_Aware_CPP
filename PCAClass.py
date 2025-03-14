@@ -21,10 +21,10 @@ class PCABounding:
         self.mesh.merge_close_vertices(self.tolerance) #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
         self.points=np.asarray(self.mesh.vertices)
         self.kd_tree=KDTree(self.points)
-        self.bounding_box=self.mesh.get_oriented_bounding_box()
+        #self.bounding_box=self.mesh.get_oriented_bounding_box()
         #TODO: add custom PCA axis-aligned bounding_box
-        #self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
-        self.bounding_box.color=([1,0,0])
+        self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
+        self.bounding_box.color=([0,0,0])
         self.index_determination()
         self.axis_determination()
         self.PCA_Calculation()
@@ -43,6 +43,9 @@ class PCABounding:
         for i in range(self.PCA_eigenvecs.shape[1]): #This code ensures the coordiantes point in the positive direction as the PCA vectors are un-signed
             if self.PCA_eigenvecs[:,i].sum()<0:
                 self.PCA_eigenvecs[:,i] *= -1
+        self.primary_axis=self.PCA_eigenvecs[:,0]
+        self.secondary_axis=self.PCA_eigenvecs[:,1]
+        self.tertiary_axis=self.PCA_eigenvecs[:,2]
 
     def PCA_projection(self, points_to_project=None, num_dimentions=2,): #Project the data into the n-most relevent dimentions
         if np.all(points_to_project)==None:
@@ -87,6 +90,7 @@ class Best_Fit_CPP(PCABounding):
         self.ordered_edge_points=None
         self.ordered_edge_points2D=None
         self.corner_points2D=None
+        self.max_index_edge_len=None
         self.edges=None
         self.edge1_CP=None
         self.edge2_CP=None
@@ -168,6 +172,7 @@ class Best_Fit_CPP(PCABounding):
         split=self.split_perimeter(self.ordered_edge_points, min_indices)
         segment_len=np.array([self.curvilinear_distance(segment) for segment in split])
         top_two_indices = np.argsort(segment_len)[-2:][::-1]
+        self.max_index_edge_len=segment_len[-3]
         self.edges=[split[top_two_indices[0]], split[top_two_indices[1]][::-1]]
         return
 
@@ -268,6 +273,11 @@ class Best_Fit_CPP(PCABounding):
                     return max_distance
                 
                 plane_origin=plane_origin + step * plane_normal 
+               
+            #point_cloud = o3d.geometry.PointCloud()
+            #point_cloud.points = o3d.utility.Vector3dVector(points)
+            #point_cloud.paint_uniform_color([1, 0, 0])  # Red
+            #o3d.visualization.draw_geometries([self.mesh, point_cloud],mesh_show_back_face=True)
         
         return max_distance  
 
@@ -276,8 +286,9 @@ class Best_Fit_CPP(PCABounding):
         plane_origin=self.bounding_box.center
         plane_normal=self.primary_axis
         max_forward_distance = self.mesh_slicer(plane_normal ,plane_origin, step=10)
-        max_backward_distance = self.mesh_slicer(plane_normal, plane_origin, step=-10)        
-        self.max_distance = max(max_forward_distance, max_backward_distance)
+        max_backward_distance = self.mesh_slicer(plane_normal, plane_origin, step=-10)
+        #compare with longest index edge for baseline        
+        self.max_distance = max(max_forward_distance, max_backward_distance, self.max_index_edge_len)
         return self.max_distance
     
 
@@ -458,18 +469,28 @@ class Best_Fit_CPP(PCABounding):
             ans = self.scene.cast_rays(LocVec)
 
             #Calculate "principal vector" for interpolated
-            #TODO: change from principal_vector to linear fit between consecutive points
-            principal_vector=point_set[0]-point_set[-1]
-            principal_vector=principal_vector/np.linalg.norm(principal_vector)
-
-            sign=np.dot(principal_vector,self.primary_axis)
-            if sign<0:
-                principal_vector=-1*principal_vector
+            principal_vectors = np.zeros_like(point_set)  # Array to store per-point principal vectors
+            for i in range(len(point_set)):
+                if i == 0:  # First point: only consider next point
+                    principal_vector = point_set[i + 1] - point_set[i]
+                elif i == len(point_set) - 1:  # Last point: only consider previous point
+                    principal_vector = point_set[i] - point_set[i - 1]
+                else:  # Middle points: average of previous and next vectors
+                    prev_vector = point_set[i] - point_set[i - 1]
+                    next_vector = point_set[i + 1] - point_set[i]
+                    principal_vector = (prev_vector + next_vector) / 2           
+                principal_vector /= np.linalg.norm(principal_vector)
+                # Ensure direction consistency with primary axis
+                if np.dot(principal_vector, self.primary_axis) < 0:
+                    principal_vector *= -1
+                
+                principal_vectors[i] = principal_vector 
 
             #Analyze where rays hit
             index_hits=[p for p,q in enumerate(ans['geometry_ids']) if q==0]
             #Default color is red, color_updates calculates on a per-pass basis
             color_updates = np.full((self.points.shape[0],3), -1.0)
+
            
             for i in index_hits:
                 dist=ans['t_hit'].numpy()[i]
@@ -482,13 +503,14 @@ class Best_Fit_CPP(PCABounding):
 
                 #Creates Transformation matrix of each intersection
                 transformation_matrix=np.eye(3)
-                transformation_matrix[0:3,0]=principal_vector
-                transformation_matrix[0:3,1]=np.cross(average_normal, principal_vector)
+                transformation_matrix[0:3,0] = principal_vectors[i]
+                transformation_matrix[0:3,1]=np.cross(average_normal, principal_vectors[i])
                 transformation_matrix[0:3,2]=average_normal
                 #print(transformation_matrix)
 
                 candidate_indices = np.array(self.kd_tree.query_ball_point(onSurface, 32))
                 if len(candidate_indices)>0:
+
                     inv_rotation_matrix = np.linalg.inv(transformation_matrix)
                     #print(candidate_indices)
                     new_candidate_points= inv_rotation_matrix@self.points[candidate_indices].T
@@ -496,18 +518,23 @@ class Best_Fit_CPP(PCABounding):
                     probe_mask = ((new_seed_point[0] - 10 <= new_candidate_points[0]) & (new_candidate_points[0] <= new_seed_point[0] + 10) &
                                 (new_seed_point[1] - 32 <= new_candidate_points[1]) & (new_candidate_points[1] <= new_seed_point[1] + 32))
                     scanned_points=candidate_indices[probe_mask]
+                    
                     if Redundancy==True:
-                        already_scanned_mask = (self.colors[scanned_points] == [0, 1, 0]).all(axis=1) | (self.colors[scanned_points] == [0, 0, 1]).all(axis=1)
+                        already_scanned_mask = False if len(scanned_points) == 0 else (
+                                                (self.colors[scanned_points] == [0, 1, 0]).all(axis=1) | 
+                                                (self.colors[scanned_points] == [0, 0, 1]).all(axis=1))
+                        
                         if np.all(already_scanned_mask):
                             redundant.append(point_set[i])
-                        if Elimination==True:
-                            self.passes[index]= np.delete(self.passes[index],i)
                         else:
                             color_updates[scanned_points] = [0, 1, 0]
+                        if Elimination==True:
+                            self.passes[index]= np.delete(self.passes[index],i)
+                            
                     else:
                         color_updates[scanned_points] = [0, 1, 0]
-                        
 
+            #print(redundant)
             update_mask = color_updates[:, 0] != -1
             already_marked_mask = (self.colors[:, 0] != 1) 
             rescanned_mask = update_mask & already_marked_mask
@@ -515,6 +542,21 @@ class Best_Fit_CPP(PCABounding):
             self.colors[rescanned_mask]=[0,0,1]
 
         return redundant
+    
+    def fancy_viz(self, Geoms): 
+        import open3d.visualization as vis
+        geoms=[]
+        for i in range(len(Geoms)):
+            geoms.append({"name": f"Vis {i}", "geometry": Geoms[i]})
+
+        vis.draw(geoms,
+                bg_color=(0.8, 0.9, 0.9, 1.0),
+                show_ui=True,
+                width=4096,
+                height=2160, 
+                point_size=10)
+        
+        return
 
 
 
