@@ -1,0 +1,41 @@
+from collections import deque
+
+def dyadic_sampling(lst):
+    """Select elements in a dyadic sequence: first, last, middle, then quarters, etc."""
+    n = len(lst)
+    if n == 0:
+        return []
+
+    indices = []
+    queue = deque([(0, n - 1)])  # Start with first and last indices
+
+    while queue:
+        start, end = queue.popleft()
+
+        # Add midpoint if it's a new index
+        if start <= end and start not in indices:
+            indices.append(start)
+        if start != end and end not in indices:
+            indices.append(end)
+
+        # Compute midpoint and add to queue
+        if end - start > 1:
+            mid = (start + end) // 2
+            if mid not in indices:
+                indices.append(mid)
+                print(indices)
+            queue.append((start, mid))  # Left half
+            queue.append((mid, end))    # Right half
+
+    return [lst[i] for i in indices]
+
+# Example usage:
+lists = [
+    ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],   # Odd length
+    ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']  # Even length
+]
+
+for lst in lists:
+    print(f"List: {lst}")
+    print("Selected order:", dyadic_sampling(lst))
+    print()

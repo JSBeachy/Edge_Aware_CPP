@@ -9,6 +9,7 @@ from collections import Counter
 import math
 import time
 import cvxpy as cp
+import os
 
 class PCABounding:
     tolerance = 1e-5  # Adjust tolerance as needed
@@ -25,14 +26,16 @@ class PCABounding:
         #TODO: add custom PCA axis-aligned bounding_box
         self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
         self.bounding_box.color=([0,0,0])
-        self.index_determination()
-        self.axis_determination()
+        #TODO: Terribly lazy, but necessary before confrence. Get real extents!
+        self.tertiary_height=min(self.bounding_box.extent)
+        self.primary_length=max(self.bounding_box.extent)
         self.PCA_Calculation()
 
     
     def PCA_Calculation(self):
         #Standard PCA calculation with mean-centered data
         mean=np.mean(self.points, axis=0)
+        self.cent=mean
         centered_points=self.points-mean
         cov_matrix=np.cov(centered_points.T)
         eigenvals, eigenvecs=np.linalg.eig(cov_matrix)
@@ -46,6 +49,9 @@ class PCABounding:
         self.primary_axis=self.PCA_eigenvecs[:,0]
         self.secondary_axis=self.PCA_eigenvecs[:,1]
         self.tertiary_axis=self.PCA_eigenvecs[:,2]
+        self.primary_axis_index=idx[0]
+        self.secondary_axis_index=idx[1]
+        self.tertiary_axis_index=idx[2]
 
     def PCA_projection(self, points_to_project=None, num_dimentions=2,): #Project the data into the n-most relevent dimentions
         if np.all(points_to_project)==None:
@@ -59,25 +65,7 @@ class PCABounding:
             print("Incorrect point dimentions for projection")
             return
 
-    def index_determination(self):
-        #based off o3d bounding box, but easily tranferable to PCA_calculation method
-        bblen=list(self.bounding_box.extent)
-        self.primary_axis_index=bblen.index(max(bblen))
-        popped_bblen=bblen[0:self.primary_axis_index]+bblen[self.primary_axis_index+1:]
-        self.secondary_axis_index=bblen.index(max(popped_bblen))
-        self.tertiary_axis_index=3-(self.primary_axis_index+self.secondary_axis_index)
-        self.bb_len=self.bounding_box.extent[self.primary_axis_index]
-    
-    def axis_determination(self):
-        #Adds the PCA results
-        self.rot=self.bounding_box.R
-        self.cent= self.bounding_box.center 
-        self.primary_axis=self.bounding_box.R[:,self.primary_axis_index] 
-        if np.sum(self.primary_axis)<0: self.primary_axis=self.primary_axis*-1 
-        self.secondary_axis=self.bounding_box.R[:,self.secondary_axis_index]
-        if np.sum(self.secondary_axis)<0: self.secondary_axis=self.secondary_axis*-1 
-        self.tertiary_axis=self.bounding_box.R[:,self.tertiary_axis_index]
-        if np.sum(self.tertiary_axis)<0: self.tertiary_axis=self.tertiary_axis*-1 
+
 
 class Best_Fit_CPP(PCABounding):
 
@@ -163,14 +151,23 @@ class Best_Fit_CPP(PCABounding):
         self.ordered_edge_points2D, clockwise_order=self.order_perimeter(proj_points)
         self.ordered_edge_points=edge_points[clockwise_order]
         dps=self.dot_product(self.ordered_edge_points2D)
+        min_indices = np.argsort(np.abs(dps))[:4]
 
         #Assuming 4 corners, can change to threshold here, prompt users for corners then
         #mask = np.abs(dps) < threshold
         #theshold_dps=ordered[mask]
-        min_indices = np.argsort(np.abs(dps))[:4]
+
+        # Nose-cone Work
+        #for index,i in enumerate(self.ordered_edge_points2D):
+        #    print(index,i)
+        #min_indices=[0,90,189]
+        # add in after segment_len
+        #top_two_indices = np.argsort(segment_len)[:2][::-1]
+
         self.corner_points2D=self.ordered_edge_points2D[min_indices]
         split=self.split_perimeter(self.ordered_edge_points, min_indices)
         segment_len=np.array([self.curvilinear_distance(segment) for segment in split])
+        #Not aligned with principal axis
         top_two_indices = np.argsort(segment_len)[-2:][::-1]
         self.max_index_edge_len=segment_len[-3]
         self.edges=[split[top_two_indices[0]], split[top_two_indices[1]][::-1]]
@@ -377,24 +374,48 @@ class Best_Fit_CPP(PCABounding):
         n=self.Bezier_order
         target_length=interp_dist
         Control_Point_sets=[]
-        color=[]
+        self.color=[]
         if self.tot_passes==1:
             Control_Point_sets=[self.edge1_CP]
-            color=[color_one]
+            self.color=[color_one]
         elif self.tot_passes==2:
             Control_Point_sets=[self.edge1_CP,self.edge2_CP]
-            color=[color_one, color_two]
+            self.color=[color_one, color_two]
         else:
             for i in range(self.tot_passes):
                 Control_Point_sets.append(self.edge1_CP*(1-(i)/(self.tot_passes-1))+self.edge2_CP*((i)/(self.tot_passes-1)))
-                color.append(color_one*(1-(i)/(self.tot_passes-1))+color_two*((i)/(self.tot_passes-1)))
+                self.color.append(color_one*(1-(i)/(self.tot_passes-1))+color_two*((i)/(self.tot_passes-1)))
         
-        passes=[np.vstack([self.bezier_curve3N(n,t,Pi) for t in self.find_t_newton(n, Pi,target_length)]) for Pi in Control_Point_sets]
-        colors=[col*np.ones((len(pas), 1)) for col, pas in zip(color,passes)]
+        extended_passes=[np.vstack([self.bezier_curve3N(n,t,Pi) for t in self.find_t_newton(n, Pi,target_length)]) for Pi in Control_Point_sets]
 
-        self.passes=passes
+        #TODO: Extend curves functionality
+        # # Extend curves if needed
+        # extended_passes = []
+        # for pas in passes:
+        #     pas=pas[::-1]
+        #     last_point = pas[-1]
+        #     #print(f"last_point: {last_point}")
+        #     if last_point[0] < self.primary_length:  # If it doesn't reach max bound
+        #         distance=self.primary_length-last_point[0]
+                
+        #         steps=distance//target_length
+        #         if int(steps)>0:
+        #             extension_vector = []
+        #             for i in range(int(steps)):
+        #                 new_point=last_point+self.primary_axis*target_length
+        #                 extension_vector.append(new_point)
+        #                 last_point=new_point
+        #                 pas = np.vstack([pas, np.array(extension_vector)])  # Append extension
+        #                 extended_passes.append(pas)
+        #         else:
+        #             extended_passes.append(pas)
+
+
+        colors=[col*np.ones((len(pas), 1)) for col, pas in zip(self.color,extended_passes)]
+
+        self.passes=extended_passes
         self.passes_colors=colors
-        return passes, colors
+        return extended_passes, colors
     
     def compute_average_normal_t(self, mesh, triangle_index):
             #From Scantoplan
@@ -449,19 +470,25 @@ class Best_Fit_CPP(PCABounding):
             return
         self.ray_cast_prep()
         Redundancy_order=self.pseudo_binary_order(self.passes)
+        reconstruction_order=np.argsort(Redundancy_order)
         
+
         #direction for ray-casting should be along tertiary axis, but pointing "down"
+        self.tertiary_axis=np.array([0,0,1])
         ray_unit_direction=np.array(self.tertiary_axis)*-1
         redundant=[]
-
         #reset all vertex colors to red
         self.colors= np.full((self.points.shape[0], 3), [1,0,0])
+        On_surface_full=[]
 
-        for index in Redundancy_order:
+
+        #for order, index in enumerate(Redundancy_order):
+        for index in range(len(Redundancy_order)):
             point_set=self.passes[index]
             direction = ray_unit_direction * np.ones((point_set.shape[0], 1))
-            #move points "up" on z axis by max z bb height to ensure projections have intersections
-            z_offset=min(self.bounding_box.extent)*self.tertiary_axis
+            #move points "up" on z axis by max z bb height to ensure ray-tracing has mesh intersections
+            #TODO: Don't just rely upon bounding box minimium
+            z_offset=2*min(self.bounding_box.extent)*self.tertiary_axis
             ray_origins=point_set+z_offset
 
             #Ray Cast to test for intersection
@@ -488,14 +515,19 @@ class Best_Fit_CPP(PCABounding):
 
             #Analyze where rays hit
             index_hits=[p for p,q in enumerate(ans['geometry_ids']) if q==0]
+            #index_misses=[p for p,q in enumerate(ans['geometry_ids']) if q!=0]
+            #print(f"pass_length={len(point_set)}, num_hits={len(index_hits)}")
+            #print(f"On-Surface Misses Index: {index_misses}")
             #Default color is red, color_updates calculates on a per-pass basis
             color_updates = np.full((self.points.shape[0],3), -1.0)
 
-           
+            on_surface_i=[]
             for i in index_hits:
                 dist=ans['t_hit'].numpy()[i]
                 delta=dist*self.tertiary_axis*(-1)
                 onSurface=LocVec[i][:3]+delta
+                on_surface_i.append(onSurface)
+
                 intersection_index=ans['primitive_ids'].numpy()[i]
                 #print(f"Intersected triangle index: {intersection_index}")
                 average_normal = self.compute_average_normal_t(self.tensor_plane, intersection_index)
@@ -520,20 +552,24 @@ class Best_Fit_CPP(PCABounding):
                     scanned_points=candidate_indices[probe_mask]
                     
                     if Redundancy==True:
-                        already_scanned_mask = False if len(scanned_points) == 0 else (
+                        already_scanned_mask = False if len(scanned_points)<=3 else (
                                                 (self.colors[scanned_points] == [0, 1, 0]).all(axis=1) | 
                                                 (self.colors[scanned_points] == [0, 0, 1]).all(axis=1))
                         
                         if np.all(already_scanned_mask):
-                            redundant.append(point_set[i])
+                            #print(already_scanned_mask)
+                            if Elimination==True:
+                                self.passes[index]= np.delete(self.passes[index],i)
+                            else:
+                                color_updates[scanned_points] = [0, 1, 0]
+                            redundant.append(onSurface)
                         else:
                             color_updates[scanned_points] = [0, 1, 0]
-                        if Elimination==True:
-                            self.passes[index]= np.delete(self.passes[index],i)
+
                             
                     else:
                         color_updates[scanned_points] = [0, 1, 0]
-
+                    
             #print(redundant)
             update_mask = color_updates[:, 0] != -1
             already_marked_mask = (self.colors[:, 0] != 1) 
@@ -541,24 +577,167 @@ class Best_Fit_CPP(PCABounding):
             self.colors[update_mask] = color_updates[update_mask]
             self.colors[rescanned_mask]=[0,0,1]
 
-        return redundant
+            On_surface_full.append(np.array(on_surface_i))
+
+            ## Dydactic sequence scan-checking
+            #self.mesh.vertex_colors = o3d.utility.Vector3dVector(self.colors)
+            #pass_points=o3d.geometry.PointCloud()
+            #pass_points.points=o3d.utility.Vector3dVector(np.vstack(On_surface_full))
+            #On_surface_colors_intermed=[[.1,.1,.1]*np.ones((len(pas), 1)) for pas in On_surface_full]
+            #pass_points.colors=o3d.utility.Vector3dVector(np.vstack(On_surface_colors_intermed))
+            #self.fancy_viz([self.mesh, pass_points])
+            #o3d.visualization.draw_geometries([self.mesh,pass_points],mesh_show_back_face=True)
+
+            #Redundancy Highlighting
+            # if len(redundant)>0:
+            #     redundant_points=o3d.geometry.PointCloud()
+            #     redundant_points.points=o3d.utility.Vector3dVector(np.vstack(redundant))
+            #     redundant_points.colors=o3d.utility.Vector3dVector(np.full((len(redundant), 3), [1,0.5,0]))
+            #     self.mesh.vertex_colors = o3d.utility.Vector3dVector(self.colors)
+            #     o3d.visualization.draw_geometries([self.mesh, redundant_points,],mesh_show_back_face=True)
+            # else:
+            #     self.mesh.vertex_colors = o3d.utility.Vector3dVector(self.colors)
+            #     o3d.visualization.draw_geometries([self.mesh],mesh_show_back_face=True)
+
+            
+        num_pass=len(On_surface_full)
+        scan_order=[0,num_pass-1]+[i for i in range(1,num_pass-1)]
+        for i in range(num_pass):
+            index=scan_order[i]
+            Displayed_passes=[]
+            for b in scan_order[:i+1]:
+                Displayed_passes.append(On_surface_full[b])
+            for p in range(len(Displayed_passes[-1])):
+                if len(Displayed_passes)>1:
+                    combined = np.vstack(Displayed_passes[:i] + [np.array(Displayed_passes[-1][:p+1])])
+                else:
+                    combined= np.vstack(np.array(Displayed_passes[-1][:p+1]))
+                #print(np.shape(combined))
+                self.mesh.vertex_colors = o3d.utility.Vector3dVector(np.full((self.points.shape[0], 3), [0.7,0.7,0.7]))
+                pass_points=o3d.geometry.PointCloud()
+                pass_points.points=o3d.utility.Vector3dVector(combined)
+                On_surface_colors_intermed = np.tile([[0.1, 0.1, 0.1]], (len(combined), 1))
+                pass_points.colors = o3d.utility.Vector3dVector(On_surface_colors_intermed)
+                self.fancy_viz_screenshot([self.mesh, pass_points], f"frames\Sequence\Frame_{i}_{p}.png")
+        #Reverse of Dydactic ordering
+        On_surface_full= [On_surface_full[i] for i in reconstruction_order]
+        On_surface_colors=[col*np.ones((len(pas), 1)) for col, pas in zip(self.color, On_surface_full)]
+        #On_surface_colors = [On_surface_colors[i] for i in reconstruction_order]
+        
+        return redundant, On_surface_full, On_surface_colors
     
     def fancy_viz(self, Geoms): 
         import open3d.visualization as vis
         geoms=[]
         for i in range(len(Geoms)):
+            # if i==3:
+            #     mat = o3d.visualization.rendering.MaterialRecord()
+            #     mat.point_size = 9.0
+            #     geoms.append({"name": f"Vis {i}", "geometry": Geoms[i], "material": mat})
+            # elif i==1:
+            #     mat = o3d.visualization.rendering.MaterialRecord()
+            #     mat.point_size = 3.0
+            #     geoms.append({"name": f"Vis {i}", "geometry": Geoms[i], "material": mat})
+            # else:
+            #     geoms.append({"name": f"Vis {i}", "geometry": Geoms[i]})
             geoms.append({"name": f"Vis {i}", "geometry": Geoms[i]})
 
         vis.draw(geoms,
-                bg_color=(0.8, 0.9, 0.9, 1.0),
-                show_ui=True,
-                width=4096,
-                height=2160, 
-                point_size=10)
+                #eye=[-100,200,1000],
+                eye=[-250,250,1850], #location of the camera
+                lookat=[350,1000,50], #point at which the camera is looking
+                up = [-1, 0, 0], #determines the orientation of view
+                bg_color=(1, 1, 1, 1.0),
+                show_ui=False,
+                width=1920,
+                height=1080, 
+                point_size=5,
+                line_width=6,
+                show_skybox=False,
+                )
         
         return
 
 
+    def Potential_Field(self, On_surface_passes):
+        Off_surface_passes=[]
+        for pass_set in On_surface_passes:
+            new_pass_set=[]
+            for i in pass_set:
+                #Neighborhood is 2r
+                Neighborhood_indices = np.array(self.kd_tree.query_ball_point(i, 50))
+                red_indices_mask= (self.colors[Neighborhood_indices] == [1, 0, 0]).all(axis=1)
+                if len(red_indices_mask)==0:
+                    new_pass_set.append(i)
+                else:
+                    sigma=10
+                    red_dist=self.points[Neighborhood_indices[red_indices_mask]] - i 
+                    red_weights = np.exp(-np.linalg.norm(red_dist, axis=1)  / sigma )
+                    red_cum_direction = np.sum(red_dist * red_weights[:, np.newaxis], axis=0)
+                    red_cum_norm=np.linalg.norm(red_cum_direction)
+                    #print(red_cum_direction)
+                    if red_cum_norm<3:
+                        new_pass_set.append(i+red_cum_direction)
+                    else:
+                        new_pass_set.append(i+3*red_cum_direction/red_cum_norm)
+
+            Off_surface_passes.append(np.vstack(new_pass_set))
+        return Off_surface_passes
+    
+
+    def fancy_viz_screenshot(self, Geoms, filename="frame.png"):
+
+        # Create visualizer
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(visible=False, width=1920, height=1080)
+        
+        # Add all geometries
+        for geom in Geoms:
+            vis.add_geometry(geom)
+
+        # Get render options and enable back face rendering
+        opt = vis.get_render_option()
+        opt.mesh_show_back_face = True  # <-- ✅ THIS enables back-face rendering
+        opt.background_color = np.asarray([1.0, 1.0, 1.0])
+        opt.point_size = 5.0
+        opt.light_on = False
+        opt.mesh_shade_option = o3d.visualization.MeshShadeOption.Default
+
+        # # Optionally configure render options
+        # opt = vis.get_render_option()
+        # opt.background_color = np.asarray([1.0, 1.0, 1.0])
+        # opt.point_size = 5.0
+        # opt.line_width = 6.0
+        # opt.show_coordinate_frame = False
+
+        # # Set camera parameters
+        # ctr = vis.get_view_control()
+        # eye = np.array([-250, 250, 1850])
+        # lookat = np.array([350, 1000, 50])
+        # up = np.array([-1, 0, 0])
+        # front = (lookat - eye)
+        # front = front.astype(np.float64)
+        # front /= np.linalg.norm(front)
+        # ctr.set_lookat(lookat)
+        # ctr.set_up(up)
+        # ctr.set_front(front)
+        # ctr.set_zoom(0.35)
+
+        # Render
+        vis.poll_events()
+        vis.update_renderer()
+
+        # Small delay to allow rendering to settle
+        #time.sleep(0.5)
+        
+        # Save screenshot
+        dirpath = os.path.dirname(filename)
+        if dirpath:
+            os.makedirs(dirpath, exist_ok=True)
+        vis.capture_screen_image(filename)
+
+        vis.destroy_window()
+        
 
 
 
