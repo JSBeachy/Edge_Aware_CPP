@@ -19,7 +19,13 @@ class PCABounding:
         #Can be used for any mesh/PCA calculation
         self.relative_file_name=file
         self.mesh=o3d.io.read_triangle_mesh(file)
-        self.mesh.merge_close_vertices(self.tolerance) #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
+        #Merges redunant mesh verticies (we found this to be a necessary step for zivid scans)
+        self.mesh.merge_close_vertices(self.tolerance) 
+        # Ensure the mesh has edges and triangle information for visualization
+        self.mesh.compute_adjacency_list()
+        self.mesh.compute_triangle_normals()
+        self.mesh.compute_vertex_normals()
+        self.mesh.paint_uniform_color([0.5, 0.5, 0.5])
         self.points=np.asarray(self.mesh.vertices)
         self.kd_tree=KDTree(self.points)
         #self.bounding_box=self.mesh.get_oriented_bounding_box()
@@ -142,7 +148,7 @@ class Best_Fit_CPP(PCABounding):
         return segments
 
     
-    def boundary_edge_calculations(self):
+    def boundary_edge_calculations(self, alt_corner_indicies=None):
         edges_trial = self.mesh.get_non_manifold_edges(allow_boundary_edges=False)
         edge_segments=self.points[edges_trial]
         edge_points=np.unique(edge_segments.reshape(-1,3), axis=0)
@@ -163,14 +169,16 @@ class Best_Fit_CPP(PCABounding):
         #min_indices=[0,90,189]
         # add in after segment_len
         #top_two_indices = np.argsort(segment_len)[:2][::-1]
+        if alt_corner_indicies is not None:
+            min_indices=alt_corner_indicies
 
         self.corner_points2D=self.ordered_edge_points2D[min_indices]
-        split=self.split_perimeter(self.ordered_edge_points, min_indices)
-        segment_len=np.array([self.curvilinear_distance(segment) for segment in split])
-        #Not aligned with principal axis
+        self.all_edges=self.split_perimeter(self.ordered_edge_points, min_indices)
+        segment_len=np.array([self.curvilinear_distance(segment) for segment in self.all_edges])
+        #Not aligned with principal axis, but rather length of edge
         top_two_indices = np.argsort(segment_len)[-2:][::-1]
         self.max_index_edge_len=segment_len[-3]
-        self.edges=[split[top_two_indices[0]], split[top_two_indices[1]][::-1]]
+        self.edges=[self.all_edges[top_two_indices[0]], self.all_edges[top_two_indices[1]][::-1]]
         return
 
     def fit_curve3d(self, curve, Bezier_order=6, sample_points=10):
@@ -599,7 +607,7 @@ class Best_Fit_CPP(PCABounding):
             #     self.mesh.vertex_colors = o3d.utility.Vector3dVector(self.colors)
             #     o3d.visualization.draw_geometries([self.mesh],mesh_show_back_face=True)
 
-            
+ 
         num_pass=len(On_surface_full)
         scan_order=[0,num_pass-1]+[i for i in range(1,num_pass-1)]
         for i in range(num_pass):
@@ -618,11 +626,12 @@ class Best_Fit_CPP(PCABounding):
                 pass_points.points=o3d.utility.Vector3dVector(combined)
                 On_surface_colors_intermed = np.tile([[0.1, 0.1, 0.1]], (len(combined), 1))
                 pass_points.colors = o3d.utility.Vector3dVector(On_surface_colors_intermed)
-                self.fancy_viz_screenshot([self.mesh, pass_points], f"frames\Sequence\Frame_{i}_{p}.png")
+                #self.fancy_viz_screenshot([self.mesh, pass_points], f"frames\Sequence\Frame_{i}_{p}.png")
         #Reverse of Dydactic ordering
+        On_surface_colors = [self.color[i] * np.ones((len(On_surface_full[i]), 1)) for i in reconstruction_order]
         On_surface_full= [On_surface_full[i] for i in reconstruction_order]
-        On_surface_colors=[col*np.ones((len(pas), 1)) for col, pas in zip(self.color, On_surface_full)]
-        #On_surface_colors = [On_surface_colors[i] for i in reconstruction_order]
+        
+        #On_surface_colors = [self.color[i] for i in reconstruction_order]
         
         return redundant, On_surface_full, On_surface_colors
     
@@ -697,7 +706,7 @@ class Best_Fit_CPP(PCABounding):
 
         # Get render options and enable back face rendering
         opt = vis.get_render_option()
-        opt.mesh_show_back_face = True  # <-- ✅ THIS enables back-face rendering
+        opt.mesh_show_back_face = True  
         opt.background_color = np.asarray([1.0, 1.0, 1.0])
         opt.point_size = 5.0
         opt.light_on = False

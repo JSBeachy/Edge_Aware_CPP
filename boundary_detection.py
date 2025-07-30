@@ -16,25 +16,16 @@ start=time.time()
 #segment=Best_Fit_CPP(r"plane_segments\Non-planar.stl")
 #segment=Best_Fit_CPP(r"plane_segments\Bowl.stl")
 #segment=Best_Fit_CPP("plane_segments\Foil.stl")
-#segment=Best_Fit_CPP("plane_segments\Concave.stl")
+segment=Best_Fit_CPP("plane_segments\Concave.stl")
 #segment=Best_Fit_CPP("plane_segments\Convex.stl")
 #segment=Best_Fit_CPP("plane_segments\BigL.stl")
 #segment=Best_Fit_CPP("plane_segments\Curvy.stl")
 #segment=Best_Fit_CPP("plane_segments\surjective_xz.stl")
-segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example.stl")
+#segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example.stl")
 #segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
 #segment=Best_Fit_CPP(r"C:\Users\jonas\NDIBARC\pointcloudcpp\plane_segments\Nose_Cone.stl")
 #segment=Best_Fit_CPP("plane_segments\Hat_Stringer.stl")
 #segment=Best_Fit_CPP(r"plane_segments\trap_mesh2.stl")
-
-
-# Ensure the mesh has edges and triangle information for visualization
-segment.mesh.compute_adjacency_list()
-segment.mesh.compute_triangle_normals()
-segment.mesh.compute_vertex_normals()
-segment.mesh.paint_uniform_color([0.5, 0.5, 0.5])
-#print(f"Principal Axes:\n {segment.PCA_eigenvecs}")
-#print(f"Relative Importance:\n {segment.PCA_eigenvals}")
 
 segment.boundary_edge_calculations()
 
@@ -98,7 +89,7 @@ segment.edge1_CP=segment.edge1_CP - segment.offset_dir*shift_vec
 segment.edge2_CP=segment.edge2_CP + segment.offset_dir*shift_vec
 
 #Interpolate Bézier Curves
-passes,colors=segment.line_interpolator(40)
+passes,colors=segment.line_interpolator(5)
 
 #Add 10 mm to each point's z-coordinate in the trial lines; TODO: could add normal of closes point via kd-tree
 adjusted_lines = np.vstack(passes)+ np.array([0, 0, 10])
@@ -169,6 +160,7 @@ else:
 #segment.passes=segment.Potential_Field(On_surface)
 n+=1
 segment.mesh.vertex_colors = o3d.utility.Vector3dVector(segment.colors)
+#segment.mesh.paint_uniform_color([0.5, 0.5, 0.5])
 #o3d.visualization.draw_geometries([segment.mesh,pass_points],mesh_show_back_face=True)
 segment.fancy_viz([segment.mesh, pass_points])
 #TODO:  need to extend passes past bezier cures
