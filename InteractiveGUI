@@ -124,9 +124,10 @@ class AppWindow:
         self.CPP = None
         self.corner_indices = []
         self.selected_edges = []
-        self.edge_geometries = {}
         self._last_mouse_xy = (0, 0)
         self.boundary_kdtree = None
+        self.edge_point_groups= {}
+        self.generated_passes = None
         self.current_stage = "start" # To manage the UI workflow
         
         # 3D widget Setup
@@ -303,6 +304,9 @@ class AppWindow:
         self._generate_button = gui.Button("Generate Scan Paths")
         self._generate_button.set_on_clicked(self._on_generate)
         path_planning_panel.add_child(self._generate_button)
+        self._calculate_scan_button = gui.Button("Calculate Scan Area")
+        self._calculate_scan_button.set_on_clicked(self._on_calculate_scan_area)
+        path_planning_panel.add_child(self._calculate_scan_button)
         self._settings_panel.add_child(path_planning_panel)
 
         #Load Button
@@ -522,7 +526,7 @@ class AppWindow:
             self.boundary_kdtree = o3d.geometry.KDTreeFlann(boundary_pcd)
             dps = self.CPP.dot_product(self.CPP.ordered_edge_points2D)
             self.corner_indices = list(np.argsort(np.abs(dps))[:4])
-            self._update_boundary_visualization()
+            self._visualize_full_boundary()
             self._update_corner_visualization()
             self._set_ui_for_stage("corner_selection")
             
@@ -531,7 +535,21 @@ class AppWindow:
             self.window.show_message_box("Error", f"Failed to load or process '{path}':\n{e}")
             self._set_ui_for_stage("start")
             
-    
+
+    def _visualize_full_boundary(self):
+        """Draws all boundary points in a neutral color."""
+        self._scene.scene.remove_geometry("__full_boundary")
+        if self.CPP and self.CPP.ordered_edge_points is not None:
+            boundary_cloud = o3d.geometry.PointCloud(
+                o3d.utility.Vector3dVector(self.CPP.ordered_edge_points))
+            mat = rendering.MaterialRecord()
+            mat.shader = "defaultUnlit"
+            mat.point_size = 5.0
+            mat.base_color = [0.5, 0.5, 0.5, 1.0]  # Grey color
+            self._scene.scene.add_geometry("__full_boundary", boundary_cloud, mat)
+
+
+
     # --- UI State Management ---
     def _set_ui_for_stage(self, stage):
         self.current_stage = stage
@@ -543,10 +561,12 @@ class AppWindow:
         self._spacing_input.enabled = is_param_inp
         self._shift_input.enabled = is_param_inp
         self._generate_button.enabled = is_param_inp
+        self._calculate_scan_button.enabled = (stage == "paths_generated")
+
         if is_param_inp:
             self._probe_width_input.int_value = 64
-            self._spacing_input.int_value = 5
-            self._shift_input.double_value = 50.0
+            self._spacing_input.int_value = 1
+            self._shift_input.double_value = self._probe_width_input.int_value/2
 
     def _on_reset_corners(self):
         """Resets the corners to the automatically detected ones."""
@@ -561,7 +581,7 @@ class AppWindow:
             return
         #print(f"Corners confirmed at indices: {sorted(self.corner_indices)}")
         def task():
-            self._scene.scene.remove_geometry("__boundary")
+            self._scene.scene.remove_geometry("__selected_edges")
             self._scene.scene.remove_geometry("__corners")
             #re-run perimeter calculations with new edge-points, could streamline and only run split boundary
             self.CPP.boundary_edge_calculations(alt_corner_indicies=self.corner_indices)
@@ -572,75 +592,72 @@ class AppWindow:
     def _setup_and_visualize_edge_points(self):
         '''Create a lookup dictionary from a boundary point index to its edge segement index'''
         self.only_edge_point_dic={}
-        #iterate through list to assign edge number to each point
+        self.edge_point_groups = {}
+        #iterate through list to assign:
+        # - edge point tuples with their edge as a key
+        # - edges with all edge point tuples as key
+        #Then selected points will return what their edge is (from only_edge_point_dic)
+        #and edges can rapidly be added to visualization (with edge_point_groups)
         for i, edge in enumerate(self.CPP.all_edges):
+            points_in_edge=[]
             for point in edge[1:-1]: #takes out the corners from the edge groups
                 point_tuple=tuple(point)
                 self.only_edge_point_dic[point_tuple]=i
+                points_in_edge.append(point)
+            self.edge_point_groups[i]=points_in_edge
         
         index_1= self.only_edge_point_dic.get(tuple(self.CPP.edges[0][1]))
         index_2 = self.only_edge_point_dic.get(tuple(self.CPP.edges[1][1]))
-        print(index_1,index_2)
         self.selected_edges=[index_1,index_2]
-        #re-use the boundary kd-tree
         self._update_boundary_visualization()
 
     def _on_confirm_edges(self):
+        #print(f"Confirmed Edges: {sorted(self.selected_edges)}")
         if len(self.selected_edges) != 2:
             self.window.show_message_box("Error", "Please select exactly 2 edges")
             return
         def task():
-            edge1=self.CPP.edges[self.selected_edges[0]]
-            edge2=self.CPP.edges[self.selected_edges[1]]
+            edge1=self.CPP.all_edges[self.selected_edges[0]]
+            edge2=self.CPP.all_edges[self.selected_edges[1]]
             if np.mean(edge1 @ self.CPP.secondary_axis) > np.mean(edge2 @ self.CPP.secondary_axis):
                 edge1, edge2 = edge2, edge1
+
             self.CPP.edges=[edge1,edge2]
-            for name in self.edge_geometries:
-                self._scene.scene.remove_geometry(name)
+            # Get the direction vector of each edge
+            dir1 = edge1[-1] - edge1[0]
+            dir2 = edge2[-1] - edge2[0]
+
+            # Check if their directions are aligned with the primary PCA axis
+            dot1 = np.dot(dir1, self.CPP.primary_axis)
+            dot2 = np.dot(dir2, self.CPP.primary_axis)
+
+            # If the signs are different, one edge is running backwards. Reverse it.
+            if np.sign(dot1) != np.sign(dot2):
+                self.CPP.edges[1] = self.CPP.edges[1][::-1]
+            
+            self._scene.scene.remove_geometry("__full_boundary")
+            self._scene.scene.remove_geometry("__selected_edges")
             self._set_ui_for_stage("parameter_input")
         gui.Application.instance.post_to_main_thread(self.window,task)
 
-    def _on_generate(self):
-        probe_width = self._probe_width_input.int_value
-        slice_res = self._spacing_input.int_value
-        custom_shift = self._shift_input.double_value
-        self.CPP.edge_fitter(self.CPP.edges)
-        self.CPP.scan_information(probe_width, slice_res, edge_offset=custom_shift if custom_shift > 0 else None)
-        self.CPP.shift_direction()
-        shift_vec = self.CPP.offset_one * self.CPP.secondary_axis
-        self.CPP.edge1_CP = self.CPP.edge1_CP - self.CPP.offset_dir * shift_vec
-        self.CPP.edge2_CP = self.CPP.edge2_CP + self.CPP.offset_dir * shift_vec
-        passes, colors = self.CPP.line_interpolator(40)
-        redundant, on_surface, on_surface_color = self.CPP.local_scanned_area(Redundancy=True, Elimination=False)
-        
-        self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors)
-        self._scene.scene.remove_geometry("__model__")
-        self._scene.scene.add_geometry("__model__", self.CPP.mesh, self.settings.material)
-
-        if on_surface:
-            valid_passes = [p for p in on_surface if p.size > 0]
-            if valid_passes:
-                pass_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.vstack(valid_passes)))
-                pass_points.colors = o3d.utility.Vector3dVector(np.vstack([c for c, p in zip(on_surface_color, on_surface) if p.size > 0]))
-                mat = rendering.MaterialRecord(); mat.shader = "defaultUnlit"; mat.point_size = 5.0
-                self._scene.scene.add_geometry("scan_paths", pass_points, mat)
-        
-        self.window.show_message_box("Success", "Scan path generation complete.")
-        self._set_ui_for_stage("start")
 
     def _update_boundary_visualization(self):
-        self._scene.scene.remove_geometry("__boundary")
+        self._scene.scene.remove_geometry("__selected_edges")
         if self.CPP and self.selected_edges:
-            boundary_cloud=[] # Highlight selected edges
+            all_edge_points=[]
             for edge_idx in self.selected_edges:
-                boundary_cloud.extend([key for key, value in self.only_edge_point_dic.items() if value==edge_idx])
-            boundaries= o3d.utility.Vector3dVector(np.asarray(boundary_cloud))
+                if edge_idx in self.edge_point_groups:
+                    all_edge_points.extend(self.edge_point_groups[edge_idx])
+
+            if not all_edge_points:
+                return
+            boundaries= o3d.utility.Vector3dVector(np.asarray(all_edge_points))
             boundary_cloud=o3d.geometry.PointCloud(boundaries)
             mat = rendering.MaterialRecord()
             mat.shader= "defaultUnlit"
             mat.point_size=5.0
             mat.base_color = [1, 0.5, 0.0, 1.0]
-            self._scene.scene.add_geometry("__boundary",boundary_cloud, mat)
+            self._scene.scene.add_geometry("__selected_edges",boundary_cloud, mat)
 
     def _update_corner_visualization(self):
         self._scene.scene.remove_geometry("__corners")
@@ -657,14 +674,14 @@ class AppWindow:
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.buttons & int(gui.MouseButton.RIGHT):
             self._last_mouse_xy = (event.x, event.y)
             if self.current_stage == "corner_selection":
-                self._scene.scene.scene.render_to_depth_image(self.depth_callback_corner)
+                self._scene.scene.scene.render_to_depth_image(self.depth_callback)
                 return gui.Widget.EventCallbackResult.HANDLED
             elif self.current_stage == "edge_selection":
-                self._scene.scene.scene.render_to_depth_image(self.depth_callback_edge)
+                self._scene.scene.scene.render_to_depth_image(self.depth_callback)
                 return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
     
-    def depth_callback_corner(self, depth_image):
+    def depth_callback(self, depth_image):
         x, y = self._last_mouse_xy
         widget_x = x - self._scene.frame.x
         widget_y = y - self._scene.frame.y
@@ -672,34 +689,77 @@ class AppWindow:
         if depth == 1.0: 
             return
         world = self._scene.scene.camera.unproject(widget_x, widget_y, depth, self._scene.frame.width, self._scene.frame.height)
+        #we use the same kd-tree for both searches
         [k, idx, _] = self.boundary_kdtree.search_knn_vector_3d(world, 1)
         if k > 0:
-            boundary_index = idx[0]
-            if boundary_index in self.corner_indices: 
-                self.corner_indices.remove(boundary_index)
-            else: 
-                self.corner_indices.append(boundary_index)
-            gui.Application.instance.post_to_main_thread(self.window, self._update_corner_visualization)
+            if self.current_stage == "corner_selection":
+                boundary_index = idx[0]
+                if boundary_index in self.corner_indices: 
+                    self.corner_indices.remove(boundary_index)
+                else: 
+                    self.corner_indices.append(boundary_index)
+                gui.Application.instance.post_to_main_thread(self.window, self._update_corner_visualization)
 
-    def depth_callback_edge(self, depth_image):
-        x, y = self._last_mouse_xy
-        widget_x = x - self._scene.frame.x
-        widget_y = y - self._scene.frame.y
-        depth = np.asarray(depth_image)[widget_y, widget_x]
-        if depth == 1.0: 
-            return
-        world = self._scene.scene.camera.unproject(widget_x, widget_y, depth, self._scene.frame.width, self._scene.frame.height)
-        [k, idx, _] = self.boundary_kdtree.search_knn_vector_3d(world, 1)
-        if k > 0:
-            tup=self.CPP.ordered_edge_points[idx[0]]
-            print(tup)
-            val=self.only_edge_point_dic.get(tuple(tup))
-            if val in self.selected_edges:
-                self.selected_edges.remove(val)
-                
-            else:
-                self.selected_edges.append(val)
-            gui.Application.instance.post_to_main_thread(self.window, self._update_boundary_visualization)
+            elif self.current_stage == "edge_selection":
+                tup=self.CPP.ordered_edge_points[idx[0]]
+                val=self.only_edge_point_dic.get(tuple(tup))
+                if val in self.selected_edges:
+                    self.selected_edges.remove(val)
+                else:
+                    self.selected_edges.append(val)
+
+                gui.Application.instance.post_to_main_thread(self.window, self._update_boundary_visualization)
+
+
+    def _on_generate(self):
+            self._scene.scene.remove_geometry("__path_preview")
+            probe_width = self._probe_width_input.int_value
+            slice_res = self._spacing_input.int_value
+            custom_shift = self._shift_input.double_value
+
+            self.CPP.edge_fitter(self.CPP.edges)
+            self.CPP.scan_information(probe_width, slice_res, edge_offset=custom_shift if custom_shift > 0 else None)
+            self.CPP.shift_direction()
+            shift_vec = self.CPP.offset_one * self.CPP.secondary_axis
+            self.CPP.edge1_CP = self.CPP.edge1_CP - self.CPP.offset_dir * shift_vec
+            self.CPP.edge2_CP = self.CPP.edge2_CP + self.CPP.offset_dir * shift_vec
+
+            passes, colors = self.CPP.line_interpolator(slice_res)
+            self.generated_passes = (passes, colors)
+
+                # Visualize the path preview
+            if passes:
+                pass_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.vstack(passes)))
+                pass_points.colors = o3d.utility.Vector3dVector(np.vstack(colors))
+
+                mat = rendering.MaterialRecord()
+                mat.shader = "defaultUnlit"
+                mat.point_size = 5.0
+                self._scene.scene.add_geometry("__path_preview", pass_points, mat)
+
+            self._set_ui_for_stage("paths_generated")
+        
+    def _on_calculate_scan_area(self):
+        if not self.generated_passes:
+            self.window.show_message_box("Error", "Please generate paths first.")
+            return 
+        #Clear the pre
+        redundant, on_surface, on_surface_color = self.CPP.local_scanned_area(Redundancy=True, Elimination=False)
+        
+        self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors)
+        self._scene.scene.remove_geometry("__model__")
+        self._scene.scene.add_geometry("__model__", self.CPP.mesh, self.settings.material)
+
+        if on_surface:
+            valid_passes = [p for p in on_surface if p.size > 0]
+            if valid_passes:
+                pass_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.vstack(valid_passes)))
+                pass_points.colors = o3d.utility.Vector3dVector(np.vstack([c for c, p in zip(on_surface_color, on_surface) if p.size > 0]))
+                mat = rendering.MaterialRecord(); mat.shader = "defaultUnlit"; mat.point_size = 5.0
+                self._scene.scene.add_geometry("scan_paths", pass_points, mat)
+        
+        self.window.show_message_box("Success", "Scan path generation complete.")
+        self._set_ui_for_stage("start")
 
 def main():
     gui.Application.instance.initialize()
