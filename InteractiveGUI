@@ -65,11 +65,11 @@ class Settings:
         self.show_axes = False
         self.use_ibl = True
         self.use_sun = True
-        self.new_ibl_name = None  # clear to None after loading
         self.ibl_intensity = 45000
         self.sun_intensity = 45000
         self.sun_dir = [0.577, -0.577, -0.577]
         self.sun_color = gui.Color(1, 1, 1)
+        self.material_prefab_name = Settings.DEFAULT_MATERIAL_NAME
         self.apply_material = True # clear to False after processing
         self._materials = {
             Settings.LIT: rendering.MaterialRecord(),
@@ -77,6 +77,9 @@ class Settings:
             Settings.NORMALS: rendering.MaterialRecord(),
             Settings.DEPTH: rendering.MaterialRecord()
         }
+        for mat in self._materials.values():
+            mat.point_size = 5
+
         self._materials[Settings.LIT].base_color = [0.9, 0.9, 0.9, 1.0]
         self._materials[Settings.LIT].shader = Settings.LIT
         self._materials[Settings.UNLIT].base_color = [0.9, 0.9, 0.9, 1.0]
@@ -103,7 +106,10 @@ class Settings:
 class AppWindow:
     MENU_OPEN = 1
     MENU_QUIT = 2
-    MENU_SHOW_SETTINGS = 11
+    MENU_SHOW_PATH_PLANNING = 11
+    MENU_VIEW_SETTINGS =12
+    MENU_LIGHTING_SETTINGS = 13
+    MENU_MATERIAL_SETTINGS = 14
     MENU_ABOUT = 21
     
     DEFAULT_IBL = "default"
@@ -115,7 +121,6 @@ class AppWindow:
     def __init__(self, width, height):
         self.settings = Settings()
         resource_path = gui.Application.instance.resource_path
-        self.settings.new_ibl_name = resource_path + "/" + AppWindow.DEFAULT_IBL
         self.window = gui.Application.instance.create_window(
             "Coveage Path Planning", width, height)
         w = self.window
@@ -136,139 +141,20 @@ class AppWindow:
         self._scene.set_on_sun_direction_changed(self._on_sun_dir)
         self._scene.set_on_mouse(self._on_mouse_widget3d)
 
-        em = w.theme.font_size #Keeps font size proportional to settings panel size
-        separation_height = int(round(0.5 * em))
+        self.em = w.theme.font_size #Keeps font size proportional to settings panel size
+        self.separation_height = int(round(0.5 * self.em))
         self._settings_panel = gui.Vert(
-            0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
+            0, gui.Margins(0.25 * self.em, 0.25 * self.em, 0.25 * self.em, 0.25 * self.em))
     
-        #################Advanced Controls Panels########################
-        #View Controls Panel
-        view_ctrls = gui.CollapsableVert("View controls", 0.25 * em,
-                    gui.Margins(em, 0, 0, 0))
-        view_ctrls.set_is_open(False)
-        view_ctrls.add_child(gui.Label("Mouse controls"))
-        self._arcball_button = gui.Button("Arcball")
-        self._arcball_button.horizontal_padding_em = 0.5
-        self._arcball_button.vertical_padding_em = 0
-        self._arcball_button.set_on_clicked(self._set_mouse_mode_rotate)
-        self._fly_button = gui.Button("Fly")
-        self._fly_button.horizontal_padding_em = 0.5
-        self._fly_button.vertical_padding_em = 0
-        self._fly_button.set_on_clicked(self._set_mouse_mode_fly)
-        h = gui.Horiz(0.25 * em) 
-        h.add_stretch()
-        h.add_child(self._arcball_button)
-        h.add_child(self._fly_button)
-        h.add_stretch()
-        view_ctrls.add_child(h)
+        ############## Advanced Settins Bar ############################
+        self._view_settings_dialog = None
+        self._lighting_settings_dialog = None
+        self._material_settings_dialog = None
 
-        self._show_skybox = gui.Checkbox("Show skymap")
-        self._show_skybox.set_on_checked(self._on_show_skybox)
-        view_ctrls.add_fixed(separation_height)
-        view_ctrls.add_child(self._show_skybox)
-        self._settings_panel.add_child(view_ctrls)
-        
-        #Advanced Lighting Panel
-        advanced = gui.CollapsableVert("Advanced lighting", 0,
-            gui.Margins(em, 0, 0, 0))
-        advanced.set_is_open(False)
-
-        self._profiles = gui.Combobox()
-        for name in sorted(Settings.LIGHTING_PROFILES.keys()):
-            self._profiles.add_item(name)
-        self._profiles.add_item(Settings.CUSTOM_PROFILE_NAME)
-        self._profiles.set_on_selection_changed(self._on_lighting_profile)
-        advanced.add_fixed(separation_height)
-        advanced.add_child(gui.Label("Lighting profiles"))
-        h = gui.Horiz(em)
-        h.add_stretch()
-        h.add_child(self._profiles)
-        h.add_stretch()
-        advanced.add_child(h)
-        advanced.add_fixed(separation_height)
-        
-        self._use_ibl = gui.Checkbox("HDR map")
-        self._use_ibl.set_on_checked(self._on_use_ibl)
-        self._use_sun = gui.Checkbox("Sun")
-        self._use_sun.set_on_checked(self._on_use_sun)
-        advanced.add_child(gui.Label("Light sources"))
-        h = gui.Horiz(em)
-        h.add_child(self._use_ibl)
-        h.add_child(self._use_sun)
-        advanced.add_child(h)
-        self._ibl_map = gui.Combobox()
-        for ibl in glob.glob(gui.Application.instance.resource_path +"/*_ibl.ktx"):
-            self._ibl_map.add_item(os.path.basename(ibl[:-8]))
-        self._ibl_map.selected_text = AppWindow.DEFAULT_IBL
-        self._ibl_map.set_on_selection_changed(self._on_new_ibl)
-        self._ibl_intensity = gui.Slider(gui.Slider.INT)
-        self._ibl_intensity.set_limits(0, 200000)
-        self._ibl_intensity.set_on_value_changed(self._on_ibl_intensity)
-        grid = gui.VGrid(2, 0.25 * em)
-        grid.add_child(gui.Label("HDR map"))
-        grid.add_child(self._ibl_map)
-        grid.add_child(gui.Label("Intensity"))
-        grid.add_child(self._ibl_intensity)
-        advanced.add_fixed(separation_height)
-        advanced.add_child(gui.Label("Environment"))
-        advanced.add_child(grid)
-        self._sun_intensity = gui.Slider(gui.Slider.INT)
-        self._sun_intensity.set_limits(0, 200000)
-        self._sun_intensity.set_on_value_changed(self._on_sun_intensity)
-        self._sun_dir = gui.VectorEdit()
-        self._sun_dir.set_on_value_changed(self._on_sun_dir)
-        self._sun_color = gui.ColorEdit()
-        self._sun_color.set_on_value_changed(self._on_sun_color)
-        grid = gui.VGrid(2, 0.25 * em)
-        grid.add_child(gui.Label("Intensity"))
-        grid.add_child(self._sun_intensity)
-        grid.add_child(gui.Label("Direction"))
-        grid.add_child(self._sun_dir)
-        grid.add_child(gui.Label("Color"))
-        grid.add_child(self._sun_color)
-        advanced.add_fixed(separation_height)
-        advanced.add_child(gui.Label("Sun (Directional light)"))
-        advanced.add_child(grid)
-        self._settings_panel.add_fixed(separation_height)
-        self._settings_panel.add_child(advanced)
-
-        #Advanced Materials Panel
-        material_settings = gui.CollapsableVert("Material settings", 0,
-            gui.Margins(em, 0, 0, 0))
-        material_settings.set_is_open(False)
-        self._shader = gui.Combobox()
-        self._shader.add_item(AppWindow.MATERIAL_NAMES[0])
-        self._shader.add_item(AppWindow.MATERIAL_NAMES[1])
-        self._shader.add_item(AppWindow.MATERIAL_NAMES[2])
-        self._shader.add_item(AppWindow.MATERIAL_NAMES[3])
-        self._shader.set_on_selection_changed(self._on_shader)
-        
-        self._material_prefab = gui.Combobox()
-        for prefab_name in sorted(Settings.PREFAB.keys()):
-            self._material_prefab.add_item(prefab_name)
-        self._material_prefab.selected_text = Settings.DEFAULT_MATERIAL_NAME
-        self._material_prefab.set_on_selection_changed(self._on_material_prefab)
-        self._material_color = gui.ColorEdit()
-        self._material_color.set_on_value_changed(self._on_material_color)
-        self._point_size = gui.Slider(gui.Slider.INT)
-        self._point_size.set_limits(1, 10)
-        self._point_size.set_on_value_changed(self._on_point_size)
-        grid = gui.VGrid(2, 0.25 * em)
-        grid.add_child(gui.Label("Type"))
-        grid.add_child(self._shader)
-        grid.add_child(gui.Label("Material"))
-        grid.add_child(self._material_prefab)
-        grid.add_child(gui.Label("Color"))
-        grid.add_child(self._material_color)
-        grid.add_child(gui.Label("Point size"))
-        grid.add_child(self._point_size)
-        material_settings.add_child(grid)
-        self._settings_panel.add_fixed(separation_height)
-        self._settings_panel.add_child(material_settings)
         #################################################################
 
         #Path Planning Menu
-        path_planning_panel = gui.CollapsableVert("Path Planning", 0.25 * em, gui.Margins(em, 0, 0, 0))
+        path_planning_panel = gui.CollapsableVert("Path Planning", 0.25 * self.em, gui.Margins(self.em, 0, 0, 0))
         path_planning_panel.set_is_open(True)
         #Corner Selection
         path_planning_panel.add_child(gui.Label("1. Select Corners"))
@@ -279,7 +165,7 @@ class AppWindow:
         self._confirm_corners_button = gui.Button("Confirm Corners")
         self._confirm_corners_button.set_on_clicked(self._on_confirm_corners)
         self._confirm_corners_button.enabled = False 
-        h = gui.Horiz(0.25 * em)
+        h = gui.Horiz(0.25 * self.em)
         h.add_stretch()
         h.add_child(self._reset_corners_button)
         h.add_child(self._confirm_corners_button)
@@ -321,9 +207,15 @@ class AppWindow:
             file_menu.add_item("Open...", AppWindow.MENU_OPEN)
             file_menu.add_separator()
             file_menu.add_item("Quit", AppWindow.MENU_QUIT)
+            
             settings_menu = gui.Menu()
-            settings_menu.add_item("Lighting & Materials", AppWindow.MENU_SHOW_SETTINGS)
-            settings_menu.set_checked(AppWindow.MENU_SHOW_SETTINGS, True)
+            settings_menu.add_item("Show Path Planning Panel", AppWindow.MENU_SHOW_PATH_PLANNING)
+            settings_menu.set_checked(AppWindow.MENU_SHOW_PATH_PLANNING, True)
+            settings_menu.add_separator()
+            settings_menu.add_item("View Settings", AppWindow.MENU_VIEW_SETTINGS)
+            settings_menu.add_item("Advanced Lighting", AppWindow.MENU_LIGHTING_SETTINGS)
+            settings_menu.add_item("Material Rendering Settings", AppWindow.MENU_MATERIAL_SETTINGS)
+            
             help_menu = gui.Menu()
             help_menu.add_item("About", AppWindow.MENU_ABOUT)
             menu = gui.Menu()
@@ -333,8 +225,11 @@ class AppWindow:
             gui.Application.instance.menubar = menu
         w.set_on_menu_item_activated(AppWindow.MENU_OPEN, self._on_menu_open)
         w.set_on_menu_item_activated(AppWindow.MENU_QUIT, self._on_menu_quit)
-        w.set_on_menu_item_activated(AppWindow.MENU_SHOW_SETTINGS,
+        w.set_on_menu_item_activated(AppWindow.MENU_SHOW_PATH_PLANNING,
             self._on_menu_toggle_settings_panel)
+        w.set_on_menu_item_activated(AppWindow.MENU_VIEW_SETTINGS, self._on_menu_view_settings)
+        w.set_on_menu_item_activated(AppWindow.MENU_LIGHTING_SETTINGS, self._on_menu_lighting_settings)
+        w.set_on_menu_item_activated(AppWindow.MENU_MATERIAL_SETTINGS, self._on_menu_material_settings)
         w.set_on_menu_item_activated(AppWindow.MENU_ABOUT, self._on_menu_about)
         self._apply_settings()
         self._set_ui_for_stage("start")
@@ -342,12 +237,6 @@ class AppWindow:
     def _apply_settings(self):
         self._scene.scene.show_skybox(self.settings.show_skybox)
         self._scene.scene.show_axes(self.settings.show_axes)
-        if self.settings.new_ibl_name is not None:
-            self._scene.scene.scene.set_indirect_light(
-                self.settings.new_ibl_name)
-            # Clear new_ibl_name, so we don't keep reloading this image every
-            # time the settings are applied.
-            self.settings.new_ibl_name = None
         self._scene.scene.scene.enable_indirect_light(self.settings.use_ibl)
         self._scene.scene.scene.set_indirect_light_intensity(
         self.settings.ibl_intensity)
@@ -361,21 +250,6 @@ class AppWindow:
         if self.settings.apply_material:
             self._scene.scene.update_material(self.settings.material)
             self.settings.apply_material = False
-        self._show_skybox.checked = self.settings.show_skybox
-        self._use_ibl.checked = self.settings.use_ibl
-        self._use_sun.checked = self.settings.use_sun
-        self._ibl_intensity.int_value = self.settings.ibl_intensity
-        self._sun_intensity.int_value = self.settings.sun_intensity
-        self._sun_dir.vector_value = self.settings.sun_dir
-        self._sun_color.color_value = self.settings.sun_color
-        self._material_prefab.enabled = (
-            self.settings.material.shader == Settings.LIT)
-        c = gui.Color(self.settings.material.base_color[0],
-            self.settings.material.base_color[1],
-            self.settings.material.base_color[2],
-            self.settings.material.base_color[3])
-        self._material_color.color_value = c
-        self._point_size.double_value = self.settings.material.point_size
 
     def _on_layout(self, layout_context):
         # The on_layout callback should set the frame (position + size) of every
@@ -414,11 +288,6 @@ class AppWindow:
             self.settings.apply_lighting_profile(name)
             self._apply_settings()
 
-    def _on_new_ibl(self, name, index):
-        self.settings.new_ibl_name = gui.Application.instance.resource_path + "/" + name
-        self._profiles.selected_text = Settings.CUSTOM_PROFILE_NAME
-        self._apply_settings()
-
     def _on_ibl_intensity(self, intensity):
         self.settings.ibl_intensity = int(intensity)
         self._profiles.selected_text = Settings.CUSTOM_PROFILE_NAME
@@ -443,6 +312,7 @@ class AppWindow:
         self._apply_settings()
 
     def _on_material_prefab(self, name, index):
+        self.settings.material_prefab_name = name
         self.settings.apply_material_prefab(name)
         self.settings.apply_material = True
         self._apply_settings()
@@ -483,26 +353,178 @@ class AppWindow:
 
     def _on_menu_toggle_settings_panel(self):
         self._settings_panel.visible = not self._settings_panel.visible
-        gui.Application.instance.menubar.set_checked(AppWindow.MENU_SHOW_SETTINGS, self._settings_panel.visible)
+        gui.Application.instance.menubar.set_checked(AppWindow.MENU_SHOW_PATH_PLANNING, self._settings_panel.visible)
 
     def _on_menu_about(self):
-        em = self.window.theme.font_size
         dlg = gui.Dialog("About")
-        dlg_layout = gui.Vert(em, gui.Margins(em, em, em, em))
+        dlg_layout = gui.Vert(self.em, gui.Margins(self.em, self.em, self.em, self.em))
         dlg_layout.add_child(gui.Label("An automatic coverage path planning algorithm with interactablity from user"))
-        ok = gui.Button("OK")
-        ok.set_on_clicked(self._on_about_ok)
+        done_button = gui.Button("OK")
+        done_button.set_on_clicked(self._on_about_ok)
         h = gui.Horiz()
         h.add_stretch()
-        h.add_child(ok)
+        h.add_child(done_button)
         h.add_stretch()
         dlg_layout.add_child(h)
         dlg.add_child(dlg_layout)
         self.window.show_dialog(dlg)
 
-    def _on_about_ok(self):
+    def _close_dialog(self):
         self.window.close_dialog()
 
+    def _on_menu_view_settings(self):
+        arcball_button = gui.Button("Arcball")
+        arcball_button.set_on_clicked(self._set_mouse_mode_rotate)
+        fly_button = gui.Button("Fly")
+        fly_button.set_on_clicked(self._set_mouse_mode_fly)
+        show_skybox = gui.Checkbox("Show skymap")
+        show_skybox.checked=self.settings.show_skybox #get updated settings for skybox status
+        show_skybox.set_on_checked(self._on_show_skybox)
+
+        dlg = gui.Dialog("View Controls")
+        view_ctrls = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        view_ctrls.add_child(gui.Label("Mouse controls"))
+        h = gui.Horiz(0.25 * self.em)
+        h.add_stretch()
+        h.add_child(arcball_button)
+        h.add_child(fly_button)
+        h.add_stretch()
+        view_ctrls.add_child(h)
+        view_ctrls.add_fixed(self.separation_height)
+        view_ctrls.add_child(show_skybox)
+        
+        # Add Done button to close dialog
+        done_button = gui.Button("Done")
+        done_button.set_on_clicked(self._close_dialog)
+        h = gui.Horiz(0.25 * self.em)
+        h.add_stretch()
+        h.add_child(done_button)
+        h.add_stretch()
+        view_ctrls.add_child(h)
+        
+        dlg.add_child(view_ctrls)
+        self.window.show_dialog(dlg)
+
+    def _on_menu_lighting_settings(self):
+        dlg = gui.Dialog("Advanced Lighting")
+        advanced = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        
+        advanced.add_child(gui.Label("Lighting profiles"))
+        self._profiles = gui.Combobox()
+        for name in sorted(Settings.LIGHTING_PROFILES.keys()):
+            self._profiles.add_item(name)
+        self._profiles.set_on_selection_changed(self._on_lighting_profile)
+        h = gui.Horiz(self.em); h.add_stretch(); h.add_child(self._profiles); h.add_stretch()
+        advanced.add_child(h)
+        advanced.add_fixed(self.separation_height)
+
+        advanced.add_child(gui.Label("Light sources"))
+        self._use_ibl = gui.Checkbox("HDR map")
+        self._use_ibl.checked = self.settings.use_ibl
+        self._use_ibl.set_on_checked(self._on_use_ibl)
+        self._use_sun = gui.Checkbox("Sun")
+        self._use_sun.checked = self.settings.use_sun
+        self._use_sun.set_on_checked(self._on_use_sun)
+        h_lights = gui.Horiz(self.em); h_lights.add_child(self._use_ibl); h_lights.add_child(self._use_sun)
+        advanced.add_child(h_lights)
+        advanced.add_fixed(self.separation_height)
+
+        
+        advanced.add_child(gui.Label("Environment"))
+        self._ibl_intensity = gui.Slider(gui.Slider.INT)
+        self._ibl_intensity.set_limits(0, 200000)
+        self._ibl_intensity.int_value = self.settings.ibl_intensity
+        self._ibl_intensity.set_on_value_changed(self._on_ibl_intensity)
+        grid_env = gui.VGrid(2, 0.25 * self.em)
+        grid_env.add_child(gui.Label("Intensity"))
+        grid_env.add_child(self._ibl_intensity)
+        advanced.add_child(grid_env)
+        advanced.add_fixed(self.separation_height)
+
+        advanced.add_child(gui.Label("Sun (Directional light)"))
+        self._sun_intensity = gui.Slider(gui.Slider.INT)
+        self._sun_intensity.set_limits(0, 200000)
+        self._sun_intensity.int_value = self.settings.sun_intensity
+        self._sun_intensity.set_on_value_changed(self._on_sun_intensity)
+        self._sun_dir = gui.VectorEdit()
+        self._sun_dir.vector_value = self.settings.sun_dir
+        self._sun_dir.set_on_value_changed(self._on_sun_dir)
+        sun_color = gui.ColorEdit()
+        sun_color.color_value = self.settings.sun_color
+        sun_color.set_on_value_changed(self._on_sun_color)
+        grid_sun = gui.VGrid(2, 0.25 * self.em)
+        grid_sun.add_child(gui.Label("Intensity")); grid_sun.add_child(self._sun_intensity)
+        grid_sun.add_child(gui.Label("Direction")); grid_sun.add_child(self._sun_dir)
+        grid_sun.add_child(gui.Label("Color")); grid_sun.add_child(sun_color)
+        advanced.add_child(grid_sun)
+        advanced.add_fixed(self.separation_height)
+        
+        done_button = gui.Button("Done")
+        done_button.set_on_clicked(self._close_dialog)
+        h_done = gui.Horiz(0.25 * self.em)
+        h_done.add_stretch(); h_done.add_child(done_button); h_done.add_stretch()
+        advanced.add_child(h_done)
+
+        
+        dlg.add_child(advanced)
+        self.window.show_dialog(dlg)
+
+    def _on_menu_material_settings(self):
+        dlg = gui.Dialog("Material Settings")
+        material_settings = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        
+        # --- Create widgets locally and set their state ---
+
+        material_settings.add_child(gui.Label("Type"))
+        shader = gui.Combobox()
+        for name in AppWindow.MATERIAL_NAMES:
+            shader.add_item(name)
+        for i, material_shader in enumerate(AppWindow.MATERIAL_SHADERS):
+            if self.settings.material.shader == material_shader:
+                shader.selected_index = i
+                break
+        shader.set_on_selection_changed(self._on_shader)
+        material_settings.add_child(shader)
+        material_settings.add_fixed(self.separation_height)
+
+        material_settings.add_child(gui.Label("Material"))
+        material_prefab = gui.Combobox()
+        for prefab_name in sorted(Settings.PREFAB.keys()):
+            material_prefab.add_item(prefab_name)
+        material_prefab.selected_text = self.settings.material_prefab_name
+        material_prefab.set_on_selection_changed(self._on_material_prefab)
+        material_settings.add_child(material_prefab)
+        material_settings.add_fixed(self.separation_height)
+
+        material_settings.add_child(gui.Label("Color"))
+        material_color = gui.ColorEdit()
+        material_color.color_value = gui.Color(*self.settings.material.base_color)
+        material_color.set_on_value_changed(self._on_material_color)
+        material_settings.add_child(material_color)
+        material_settings.add_fixed(self.separation_height)
+
+        material_settings.add_child(gui.Label("Point size"))
+        point_size = gui.Slider(gui.Slider.INT)
+        point_size.set_limits(1, 10)
+        point_size.int_value = int(self.settings.material.point_size)
+        point_size.set_on_value_changed(self._on_point_size)
+        material_settings.add_child(point_size)
+        material_settings.add_fixed(self.separation_height)
+        
+
+        done_button = gui.Button("Done")
+        done_button.set_on_clicked(self._close_dialog)
+        h_done = gui.Horiz(0.25 * self.em)
+        h_done.add_stretch()
+        h_done.add_child(done_button)
+        h_done.add_stretch()
+        material_settings.add_child(h_done)
+
+        dlg.add_child(material_settings)
+        self.window.show_dialog(dlg)
+    
+    
+    
     def load(self, path):
         #Reset planning
         self._scene.scene.clear_geometry()
