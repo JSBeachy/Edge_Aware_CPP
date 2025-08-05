@@ -125,7 +125,7 @@ class AppWindow:
             "Coveage Path Planning", width, height)
         w = self.window
         
-        # --- Path Planning State ---
+        # --- Path Planning State Initializations---
         self.CPP = None
         self.corner_indices = []
         self.selected_edges = []
@@ -134,6 +134,8 @@ class AppWindow:
         self.edge_point_groups= {}
         self.generated_passes = None
         self.current_stage = "start" # To manage the UI workflow
+        self._is_refining = False
+        self.redundant_points_viz = None
         
         # 3D widget Setup
         self._scene = gui.SceneWidget()
@@ -171,12 +173,13 @@ class AppWindow:
         h.add_child(self._confirm_corners_button)
         h.add_stretch()
         path_planning_panel.add_child(h)
-
+        path_planning_panel.add_fixed(self.separation_height)
         #Edge Selection
         path_planning_panel.add_child(gui.Label("2. Select Primary Edges"))
         self._confirm_edges_button=gui.Button("Confirm Edges")
         self._confirm_edges_button.set_on_clicked(self._on_confirm_edges)
         path_planning_panel.add_child(self._confirm_edges_button)
+        path_planning_panel.add_fixed(self.separation_height)
         #Parameters and Path Generation
         path_planning_panel.add_child(gui.Label("3 Set Parameters"))
         self._probe_width_input = gui.NumberEdit(gui.NumberEdit.INT)
@@ -187,16 +190,63 @@ class AppWindow:
         grid.add_child(gui.Label("Point Spacing (mm)")); grid.add_child(self._spacing_input)
         grid.add_child(gui.Label("Custom Shift (mm)")); grid.add_child(self._shift_input)
         path_planning_panel.add_child(grid)
-        self._generate_button = gui.Button("Generate Scan Paths")
+        path_planning_panel.add_fixed(self.separation_height)
+        #Generate Scan Paths
+        self._generate_button = gui.Button("4 Generate Scan Paths")
         self._generate_button.set_on_clicked(self._on_generate)
         path_planning_panel.add_child(self._generate_button)
-        self._calculate_scan_button = gui.Button("Calculate Scan Area")
+        path_planning_panel.add_fixed(self.separation_height)
+        #Calculate Scanned Area
+        self._calculate_scan_button = gui.Button("5 Calculate Scan Area")
         self._calculate_scan_button.set_on_clicked(self._on_calculate_scan_area)
         path_planning_panel.add_child(self._calculate_scan_button)
         self._settings_panel.add_child(path_planning_panel)
+        # Potential Field Iterations
+        path_planning_panel.add_child(gui.Label("6. Refine Paths (Potential Field)"))
+        self._refinement_iterations_input = gui.NumberEdit(gui.NumberEdit.INT)
+        self._refinement_iterations_input.int_value = 5 # Default to 5 iterations
+        self._refinement_radius_input = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self._refinement_radius_input.double_value = 50.0 #Default to refinement radius of 50mm
+        self._refinement_step_size_input = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self._refinement_step_size_input.double_value = 5.0 # Default to 3.0
+        grid = gui.VGrid(2)
+        grid.add_child(gui.Label("Iterations \n(-1 for continuous)"))
+        grid.add_child(self._refinement_iterations_input)
+        grid.add_child(gui.Label("Refinement Radius"))
+        grid.add_child(self._refinement_radius_input)
+        grid.add_child(gui.Label("Refinement Step Size"))
+        grid.add_child(self._refinement_step_size_input)
+        path_planning_panel.add_child(grid)
+        path_planning_panel.add_fixed(self.separation_height)
+        self._start_refinement_button = gui.Button("Start Refinement")
+        self._start_refinement_button.set_on_clicked(self._on_start_refinement)
+        self._finish_refinement_button = gui.Button("Finish & Continue")
+        self._finish_refinement_button.set_on_clicked(self._on_finish_refinement)
+        refinement_buttons_layout = gui.Horiz(0.25 * self.em)
+        refinement_buttons_layout.add_child(self._start_refinement_button)
+        refinement_buttons_layout.add_child(self._finish_refinement_button)
+        path_planning_panel.add_child(refinement_buttons_layout)
+        self._iteration_counter_label = gui.Label("Iteration: -")
+        path_planning_panel.add_child(self._iteration_counter_label)
+        path_planning_panel.add_fixed(self.separation_height)
+        #Redundancy Elimination
+        self._redundancy_elimination_button = gui.Button("7. Eliminate Redundancy") # You can rename the label
+        self._redundancy_elimination_button.set_on_clicked(self._on_redundancy_elimination)
+        path_planning_panel.add_child(self._redundancy_elimination_button)
+        self._accept_elimination_button = gui.Button("Accept Elimination")
+        self._accept_elimination_button.set_on_clicked(self._on_accept_elimination)
+        self._reject_elimination_button = gui.Button("Reject")
+        self._reject_elimination_button.set_on_clicked(self._on_reject_elimination)
+        elimination_buttons_layout = gui.Horiz(0.25 * self.em)
+        elimination_buttons_layout.add_child(self._accept_elimination_button)
+        elimination_buttons_layout.add_child(self._reject_elimination_button)
+        path_planning_panel.add_child(elimination_buttons_layout)
+        #Finalize Path Button
+        self._export_paths_button = gui.Button("8. Export Paths")
+        self._export_paths_button.set_on_clicked(self._on_export_paths)
+        path_planning_panel.add_child(self._export_paths_button)
 
         #Load Button
-
         w.set_on_layout(self._on_layout)
         w.add_child(self._scene)
         w.add_child(self._settings_panel)
@@ -521,17 +571,18 @@ class AppWindow:
         material_settings.add_child(h_done)
 
         dlg.add_child(material_settings)
-        self.window.show_dialog(dlg)
-    
-    
+        self.window.show_dialog(dlg)  
     
     def load(self, path):
         #Reset planning
         self._scene.scene.clear_geometry()
-        self.corner_indices=[]
-        self.selected_edges=[]
-        self.CPP= None
-        self.boundary_kdtree= None
+        self.corner_indices = []
+        self.selected_edges = []
+        self.CPP = None
+        self.boundary_kdtree = None
+        self.generated_passes = None
+        self.on_surface_passes = None
+        self.adjusted_passes = None
         try:
             self.CPP = Best_Fit_CPP(path)
             # Add the main mesh to the scene first
@@ -575,20 +626,58 @@ class AppWindow:
     # --- UI State Management ---
     def _set_ui_for_stage(self, stage):
         self.current_stage = stage
-        self._reset_corners_button.enabled = (stage == "corner_selection")
-        self._confirm_corners_button.enabled = (stage == "corner_selection")
-        self._confirm_edges_button.enabled = (stage == "edge_selection")
-        is_param_inp = stage == "parameter_input"
-        self._probe_width_input.enabled = is_param_inp
-        self._spacing_input.enabled = is_param_inp
-        self._shift_input.enabled = is_param_inp
-        self._generate_button.enabled = is_param_inp
-        self._calculate_scan_button.enabled = (stage == "paths_generated")
+        
+        # --- Default states ---
+        self._reset_corners_button.enabled = False
+        self._confirm_corners_button.enabled = False
+        self._confirm_edges_button.enabled = False
+        self._probe_width_input.enabled = False
+        self._spacing_input.enabled = False
+        self._shift_input.enabled = False
+        self._generate_button.enabled = False
+        self._calculate_scan_button.enabled = False
+        self._start_refinement_button.enabled = False
+        self._finish_refinement_button.enabled = False
+        self._refinement_iterations_input.enabled = False
+        self._redundancy_elimination_button.enabled = False
+        self._accept_elimination_button.enabled = False
+        self._reject_elimination_button.enabled = False
+        self._export_paths_button.enabled = False
 
-        if is_param_inp:
-            self._probe_width_input.int_value = 64
-            self._spacing_input.int_value = 1
-            self._shift_input.double_value = self._probe_width_input.int_value/2
+        # --- Enable based on stage ---
+        if stage == "start":
+            pass # Everything is disabled until a file is loaded
+        elif stage == "corner_selection":
+            self._reset_corners_button.enabled = True
+            self._confirm_corners_button.enabled = True
+        elif stage == "edge_selection":
+            self._confirm_edges_button.enabled = True
+        elif stage == "parameter_input":
+            self._probe_width_input.enabled = True
+            self._spacing_input.enabled = True
+            self._shift_input.enabled = True
+            self._generate_button.enabled = True
+            if not self._probe_width_input.int_value: # Set defaults if not set
+                self._probe_width_input.int_value = 64
+                self._spacing_input.int_value = 5
+                self._shift_input.double_value = self._probe_width_input.int_value / 2
+        elif stage == "paths_generated":
+            self._calculate_scan_button.enabled = True
+        elif stage == "scan_calculated" or stage == "potential_field_applied":
+            can_refine = not self._is_refining
+            self._start_refinement_button.enabled = can_refine
+            self._finish_refinement_button.enabled = self._is_refining
+            self._refinement_iterations_input.enabled = can_refine
+            self._redundancy_elimination_button.enabled = (stage == "potential_field_applied")
+            if not self._is_refining:
+                self._iteration_counter_label.text = "Iteration: -"
+        elif stage == "refining":
+            self._finish_refinement_button.enabled = True
+        elif stage == "redundancy_review":
+            self._accept_elimination_button.enabled = True
+            self._reject_elimination_button.enabled = True
+        elif stage == "paths_exported":
+            self._export_paths_button.enabled = True
 
     def _on_reset_corners(self):
         """Resets the corners to the automatically detected ones."""
@@ -767,7 +856,8 @@ class AppWindow:
             return 
         #Clear the pre
         redundant, on_surface, on_surface_color = self.CPP.local_scanned_area(Redundancy=True, Elimination=False)
-        
+        self.on_surface_passes = on_surface
+
         self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors)
         self._scene.scene.remove_geometry("__model__")
         self._scene.scene.add_geometry("__model__", self.CPP.mesh, self.settings.material)
@@ -781,7 +871,150 @@ class AppWindow:
                 self._scene.scene.add_geometry("scan_paths", pass_points, mat)
         
         self.window.show_message_box("Success", "Scan path generation complete.")
-        self._set_ui_for_stage("start")
+        self._set_ui_for_stage("scan_calculated")
+    
+    def _on_start_refinement(self):
+        """Starts the iterative refinement process."""
+        if self.adjusted_passes:
+            initial_passes=self.adjusted_passes
+        elif self.on_surface_passes:
+            initial_passes= self.on_surface_passes
+        else:
+            self.window.show_message_box("Error", "Calculate scan area first.")
+            return
+        
+        self.CPP.passes = initial_passes
+        self._is_refining = True
+        self._current_iter = 0
+        self._max_iter = self._refinement_iterations_input.int_value
+        self._set_ui_for_stage("refining")
+
+        # Update counter label and start of the process
+        iter_text = f"Iteration: 0 / {self._max_iter if self._max_iter != -1 else '∞'}"
+        self._iteration_counter_label.text = iter_text
+        self._run_refinement_step()
+
+
+    def _run_refinement_step(self):
+        if not self._is_refining:
+            return
+        # Update the iteration counter display
+        iter_text = f"Iteration: {self._current_iter + 1} / {self._max_iter if self._max_iter != -1 else '∞'}"
+        self._iteration_counter_label.text = iter_text
+        radius = self._refinement_radius_input.double_value
+        step_size = self._refinement_step_size_input.double_value
+        self.adjusted_passes=self.CPP.Potential_Field(self.CPP.passes, radius=radius,max_step=step_size)
+        #Re-color the mesh
+        self.CPP.passes = self.adjusted_passes
+        redundant, new_on_surface_passes, on_surface_color=self.CPP.local_scanned_area(Redundancy=False, Elimination=False)
+        self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors)
+        self._scene.scene.remove_geometry("__model__")
+        self._scene.scene.add_geometry("__model__", self.CPP.mesh, self.settings.material)
+        #update the path visualization
+        self._scene.scene.remove_geometry("scan_paths")
+        self._scene.scene.remove_geometry("adjusted_paths")
+        pass_points=o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.vstack(self.adjusted_passes)))
+        pass_points.paint_uniform_color([1.0, 1.0, 1.0])
+        mat = rendering.MaterialRecord()
+        mat.shader = "defaultUnlit"
+        mat.point_size = 5.0
+        self._scene.scene.add_geometry("adjusted_paths", pass_points, mat)
+        #Check number of unscanned/red points
+        unscanned_mask = (self.CPP.colors == [1, 0, 0]).all(axis=1)
+        if not np.any(unscanned_mask):
+            self.window.show_message_box("Success", "Refinement complete: Surface is fully covered.")
+            self._is_refining = False
+        #Update iteration count and on-surface points
+        self._current_iter += 1
+        self.on_surface_passes = new_on_surface_passes
+        #Schedule stopping or continue
+        if self._max_iter != -1 and self._current_iter >= self._max_iter:
+            self.window.show_message_box("Success", f"Refinement complete: Reached {self._max_iter} iterations.")
+            self._is_refining = False
+        if self._is_refining:
+            gui.Application.instance.post_to_main_thread(self.window, self._run_refinement_step)
+        else:
+            self._set_ui_for_stage("scan_calculated")
+            # Allow redundancy elimination now that refinement is done
+            self._set_ui_for_stage("potential_field_applied") 
+        
+    def _on_finish_refinement(self):
+        """Stops the refinement process if it is running continuously."""
+        self._is_refining = False
+        self._set_ui_for_stage("scan_calculated")
+        self.window.show_message_box("Info", "Refinement stopped by user.")
+
+    def _on_redundancy_elimination(self):
+        if not hasattr(self, 'adjusted_passes') or not self.adjusted_passes:
+            self.window.show_message_box("Error", "Potential field must be applied first.")
+            return
+
+        self.CPP.passes = self.adjusted_passes
+        # Rerun the scan calculation with Elimination disabled
+        self.redundant_points_viz, _, _ = self.CPP.local_scanned_area(
+            Redundancy=True, Elimination=False)
+    
+        if not self.redundant_points_viz or len(self.redundant_points_viz) == 0:
+            self.window.show_message_box("Info", "No redundant points were found.")
+            # Since there's nothing to do, we can proceed to the final step
+            self._set_ui_for_stage("paths_exported")
+            return
+
+        redundant_cloud = o3d.geometry.PointCloud()
+        redundant_cloud.points = o3d.utility.Vector3dVector(np.vstack(self.redundant_points_viz))
+        # Color them orange for visibility, similar to boundary_detection.py
+        redundant_cloud.paint_uniform_color([1.0, 0.5, 0.0])
+
+        mat = rendering.MaterialRecord()
+        mat.shader = "defaultUnlit"
+        mat.point_size = 7.0
+        self._scene.scene.add_geometry("__redundant_points", redundant_cloud, mat)
+
+        # Update UI to allow user to accept or reject
+        self._set_ui_for_stage("redundancy_review")
+
+    def _on_accept_elimination(self):
+        """User accepts the elimination. Now we re-run with Elimination=True."""
+        # 1. Clean up the visualization
+        self._scene.scene.remove_geometry("__redundant_points")
+        self.redundant_points_viz = None
+
+        # 2. Rerun the scan calculation with Elimination ENABLED
+        self.CPP.passes = self.adjusted_passes # Ensure we use the latest paths
+        _, on_surface, on_surface_color = self.CPP.local_scanned_area(
+            Redundancy=True, Elimination=True) # [cite: 98]
+
+        # 3. Update the mesh with the final coloring
+        self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors) # [cite: 93, 98]
+        self._scene.scene.remove_geometry("__model__")
+        self._scene.scene.add_geometry("__model__", self.CPP.mesh, self.settings.material) # [cite: 93, 98]
+
+        # 4. Clear old path visualizations and show the final, trimmed path
+        self._scene.scene.remove_geometry("scan_paths")
+        self._scene.scene.remove_geometry("adjusted_paths")
+
+        if on_surface:
+            valid_passes = [p for p in on_surface if p.size > 0]
+            if valid_passes:
+                pass_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.vstack(valid_passes))) # [cite: 88]
+                pass_points.colors = o3d.utility.Vector3dVector(np.vstack([c for c, p in zip(on_surface_color, on_surface) if p.size > 0])) # [cite: 88]
+                mat = rendering.MaterialRecord(); mat.shader = "defaultUnlit"; mat.point_size = 5.0 # [cite: 89]
+                self._scene.scene.add_geometry("final_paths", pass_points, mat)
+
+        self.window.show_message_box("Success", "Redundant paths eliminated.")
+        self._set_ui_for_stage("paths_exported")
+
+    def _on_reject_elimination(self):
+        """User rejects the elimination. Revert to the previous state."""
+        # Just remove the visualization and go back to the previous stage
+        self._scene.scene.remove_geometry("__redundant_points")
+        self.redundant_points_viz = None
+        self.window.show_message_box("Info", "Redundancy elimination cancelled.")
+        self._set_ui_for_stage("potential_field_applied")
+
+    def _on_export_paths(self):
+        """A placeholder for the final export action."""
+        self.window.show_message_box("Action", "Export functionality not yet implemented.")
 
 def main():
     gui.Application.instance.initialize()

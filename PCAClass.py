@@ -668,16 +668,20 @@ class Best_Fit_CPP(PCABounding):
         return
 
 
-    def Potential_Field(self, On_surface_passes):
+    def Potential_Field(self, On_surface_passes, radius=50.0, max_step=5.0):
         Off_surface_passes=[]
         for pass_set in On_surface_passes:
             new_pass_set=[]
             for i in pass_set:
                 #Neighborhood is 2r
-                Neighborhood_indices = np.array(self.kd_tree.query_ball_point(i, 50))
-                red_indices_mask= (self.colors[Neighborhood_indices] == [1, 0, 0]).all(axis=1)
-                if len(red_indices_mask)==0:
+                Neighborhood_indices = np.array(self.kd_tree.query_ball_point(i, radius))
+                if Neighborhood_indices.size==0:
                     new_pass_set.append(i)
+                    continue
+                
+                red_indices_mask= (self.colors[Neighborhood_indices] == [1, 0, 0]).all(axis=1)
+                if not np.any(red_indices_mask):
+                    new_pass_set.append(i) # No red points nearby, so don't move
                 else:
                     sigma=10
                     red_dist=self.points[Neighborhood_indices[red_indices_mask]] - i 
@@ -685,10 +689,10 @@ class Best_Fit_CPP(PCABounding):
                     red_cum_direction = np.sum(red_dist * red_weights[:, np.newaxis], axis=0)
                     red_cum_norm=np.linalg.norm(red_cum_direction)
                     #print(red_cum_direction)
-                    if red_cum_norm<3:
+                    if red_cum_norm<max_step:
                         new_pass_set.append(i+red_cum_direction)
                     else:
-                        new_pass_set.append(i+3*red_cum_direction/red_cum_norm)
+                        new_pass_set.append(i+max_step*red_cum_direction/red_cum_norm)
 
             Off_surface_passes.append(np.vstack(new_pass_set))
         return Off_surface_passes
