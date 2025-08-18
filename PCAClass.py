@@ -27,6 +27,9 @@ class PCABounding:
         self.mesh.compute_vertex_normals()
         self.mesh.paint_uniform_color([0.5, 0.5, 0.5])
         self.points=np.asarray(self.mesh.vertices)
+        noise_std_dev = 1e-4  # A small value, adjust if needed
+        z_noise = np.random.normal(loc=0.0, scale=noise_std_dev, size=self.points.shape[0])
+        self.points[:, 2] += z_noise
         self.kd_tree=KDTree(self.points)
         #self.bounding_box=self.mesh.get_oriented_bounding_box()
         #TODO: add custom PCA axis-aligned bounding_box
@@ -490,8 +493,8 @@ class Best_Fit_CPP(PCABounding):
         On_surface_full=[]
 
 
-        #for order, index in enumerate(Redundancy_order):
-        for index in range(len(Redundancy_order)):
+        for order, index in enumerate(Redundancy_order):
+        #for index in Redundancy_order:
             point_set=self.passes[index]
             direction = ray_unit_direction * np.ones((point_set.shape[0], 1))
             #move points "up" on z axis by max z bb height to ensure ray-tracing has mesh intersections
@@ -567,7 +570,7 @@ class Best_Fit_CPP(PCABounding):
                         if np.all(already_scanned_mask):
                             #print(already_scanned_mask)
                             if Elimination==True:
-                                self.passes[index]= np.delete(self.passes[index],i)
+                                on_surface_i.pop()
                             else:
                                 color_updates[scanned_points] = [0, 1, 0]
                             redundant.append(onSurface)
@@ -627,11 +630,14 @@ class Best_Fit_CPP(PCABounding):
                 On_surface_colors_intermed = np.tile([[0.1, 0.1, 0.1]], (len(combined), 1))
                 pass_points.colors = o3d.utility.Vector3dVector(On_surface_colors_intermed)
                 #self.fancy_viz_screenshot([self.mesh, pass_points], f"frames\Sequence\Frame_{i}_{p}.png")
-        #Reverse of Dydactic ordering
+        
+        #Correct order for redundancy
         On_surface_colors = [self.color[i] * np.ones((len(On_surface_full[i]), 1)) for i in reconstruction_order]
         On_surface_full= [On_surface_full[i] for i in reconstruction_order]
         
-        #On_surface_colors = [self.color[i] for i in reconstruction_order]
+        #Correct order for exporting
+        #On_surface_colors = [self.color[i] * np.ones((len(pass_set), 1)) for i, pass_set in enumerate(On_surface_full)]
+        
         
         return redundant, On_surface_full, On_surface_colors
     

@@ -22,11 +22,11 @@ start=time.time()
 #segment=Best_Fit_CPP("plane_segments\Curvy.stl")
 #segment=Best_Fit_CPP("plane_segments\surjective_xz.stl")
 #segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example.stl")
-#segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
+segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
 #segment=Best_Fit_CPP(r"C:\Users\jonas\NDIBARC\pointcloudcpp\plane_segments\Nose_Cone.stl")
 #segment=Best_Fit_CPP("plane_segments\Hat_Stringer.stl")
 #segment=Best_Fit_CPP(r"plane_segments\trap_mesh2.stl")
-segment=Best_Fit_CPP(r"plane_segments\Fake_Real_Mesh.stl")
+#segment=Best_Fit_CPP(r"plane_segments\Fake_Real_Mesh.stl")
 segment.boundary_edge_calculations()
 
 # Create a visualization object
@@ -203,11 +203,6 @@ for i, point_set in enumerate(On_surface):
     localposes = []
     localnames = []
 
-    principal_vector = point_set[-1] - point_set[0]
-    principal_vector /= np.linalg.norm(principal_vector)
-    if np.dot(principal_vector, segment.primary_axis) < 0:
-        principal_vector *= -1
-
     # Project path points onto the mesh surface using ray casting
     direction = np.array(segment.tertiary_axis) * -1 * np.ones((point_set.shape[0], 1))
     z_offset = min(segment.bounding_box.extent) * segment.tertiary_axis
@@ -231,22 +226,34 @@ for i, point_set in enumerate(On_surface):
 
 
     for k in RoboIndex:
+        if k == 0:  # First point
+            p_vec = point_set[k + 1] - point_set[k]
+        elif k >= len(point_set) - 1:  # Last point
+            p_vec = point_set[k] - point_set[k - 1]
+        else:  # Middle points
+            prev_vector = point_set[k] - point_set[k - 1]
+            next_vector = point_set[k + 1] - point_set[k]
+            p_vec = (prev_vector + next_vector) / 2
+        
+        p_vec /= np.linalg.norm(p_vec) # Normalize the vector
+
         dist = ans['t_hit'].numpy()[k]
         delta = dist * segment.tertiary_axis * (-1)
         onSurface = LocVec[k][:3] + delta
         intersection_index = ans['primitive_ids'].numpy()[k]
+        if np.dot(p_vec, segment.primary_axis) < 0:
+            p_vec *= -1
         
         # Compute the average normal at the intersection point
-        average_normal = segment.compute_average_normal_t(segment.tensor_plane, intersection_index)
+        average_normal = segment.compute_average_normal_t(segment.tensor_plane, intersection_index) *-1
 
-        p_vec = principal_vector.flatten()
         a_norm = average_normal.flatten()
         o_surf = onSurface.flatten()
         y_vec = np.cross(a_norm, p_vec).flatten()
         
         # Creates RoboDK points; Uses principal_vector from above instead of primary axis due to interpolation between edges
         transformation_matrix = np.eye(4)
-        transformation_matrix[0:3, 0] = principal_vector
+        transformation_matrix[0:3, 0] = p_vec
         transformation_matrix[0:3, 1] = y_vec
         transformation_matrix[0:3, 2] = a_norm
         transformation_matrix[0:3, 3] = o_surf
@@ -265,11 +272,20 @@ for i, point_set in enumerate(On_surface):
 # --- Add the calculated targets to the RoboDK station ---
 print(f"Adding {len(poses)} new targets to RoboDK...")
 
+current_targets=[]
 for i, pose in enumerate(poses):
     target=Mat(pose.tolist())
     target_name = names[i]
-    new_target = RDK.AddTarget(target_name,base_frame)
+    new_target = RDK.AddTarget(target_name)
     new_target.setPose(target)
+    current_targets.append(new_target)
+
+program = RDK.AddProgram("Path 1")
+for i,pose in enumerate(current_targets):
+    if i == 0 or i == 1 or i == len(current_targets) - 1:
+        program.MoveJ(pose)
+    else:
+        program.MoveL(pose)
 
 print("RoboDK update complete.")
 
