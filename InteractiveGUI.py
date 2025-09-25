@@ -104,8 +104,7 @@ class Settings:
             setattr(self, key, val) #changes specific class variable to val
 
 class AppWindow:
-    MENU_OPEN = 1
-    MENU_QUIT = 2
+    MENU_QUIT = 1
     MENU_SHOW_PATH_PLANNING = 11
     MENU_VIEW_SETTINGS =12
     MENU_LIGHTING_SETTINGS = 13
@@ -148,12 +147,17 @@ class AppWindow:
         self._settings_panel = gui.Vert(
             0, gui.Margins(0.25 * self.em, 0.25 * self.em, 0.25 * self.em, 0.25 * self.em))
     
-        ############## Advanced Settins Bar ############################
+        ############## Advanced Settings Bar ############################
         self._view_settings_dialog = None
         self._lighting_settings_dialog = None
         self._material_settings_dialog = None
 
         #################################################################
+        #Open File Button
+        self._open_button = gui.Button("Open File")
+        self._open_button.set_on_clicked(self._on_menu_open)
+        self._settings_panel.add_child(self._open_button)
+        self._settings_panel.add_fixed(self.separation_height)
 
         #Path Planning Menu
         path_planning_panel = gui.CollapsableVert("Path Planning", 0.25 * self.em, gui.Margins(self.em, 0, 0, 0))
@@ -254,8 +258,6 @@ class AppWindow:
 
         if gui.Application.instance.menubar is None:
             file_menu = gui.Menu()
-            file_menu.add_item("Open...", AppWindow.MENU_OPEN)
-            file_menu.add_separator()
             file_menu.add_item("Quit", AppWindow.MENU_QUIT)
             
             settings_menu = gui.Menu()
@@ -268,12 +270,13 @@ class AppWindow:
             
             help_menu = gui.Menu()
             help_menu.add_item("About", AppWindow.MENU_ABOUT)
+            
             menu = gui.Menu()
             menu.add_menu("File", file_menu)
             menu.add_menu("Settings", settings_menu)
             menu.add_menu("Help", help_menu)
             gui.Application.instance.menubar = menu
-        w.set_on_menu_item_activated(AppWindow.MENU_OPEN, self._on_menu_open)
+
         w.set_on_menu_item_activated(AppWindow.MENU_QUIT, self._on_menu_quit)
         w.set_on_menu_item_activated(AppWindow.MENU_SHOW_PATH_PLANNING,
             self._on_menu_toggle_settings_panel)
@@ -872,8 +875,11 @@ class AppWindow:
         total_vertices = len(self.CPP.points)
         unscanned_mask = (self.CPP.colors == [1, 0, 0]).all(axis=1)
         unscanned_count = np.sum(unscanned_mask)
+        blue_mask = (self.CPP.colors == [0, 0, 1]).all(axis=1)
+        blue_count = np.sum(blue_mask)
         coverage_rate = (1 - (unscanned_count / total_vertices)) * 100 if total_vertices > 0 else 0
         print(f"Initial Coverage Rate: {coverage_rate:.2f}% ({unscanned_count} unscanned points)")
+        print(f"Initial Blue Vertices: {blue_count}")
 
         self.CPP.mesh.vertex_colors = o3d.utility.Vector3dVector(self.CPP.colors)
         self._scene.scene.remove_geometry("__model__")
@@ -1006,6 +1012,7 @@ class AppWindow:
             blue_count = np.sum(blue_mask)
             remaining_overlap = (blue_count / total_vertices) * 100 if total_vertices > 0 else 0
             print(f"Remaining Overlap (Post-Elimination): {remaining_overlap:.2f}%")
+            print(f"Remaining Blue Vertices: {blue_count}")
             self._set_ui_for_stage("paths_exported")
             return
 
@@ -1048,6 +1055,7 @@ class AppWindow:
         blue_mask = (self.CPP.colors == [0, 0, 1]).all(axis=1)
         blue_count = np.sum(blue_mask)
         remaining_overlap = (blue_count / total_vertices) * 100 if total_vertices > 0 else 0
+        print(f"Remaining Blue Vertices: {blue_count}")
         print(f"Remaining Overlap (Post-Elimination): {remaining_overlap:.2f}%")
 
         #Clear old path visualizations and show the final, trimmed path
