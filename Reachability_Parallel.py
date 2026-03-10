@@ -7,9 +7,11 @@ import time
 from scipy.spatial import cKDTree
 import os
 import multiprocessing
+#from UR5Kinematics import UR5Kinematics
 
 ROBOT_PROFILES = {
     "abb_irb120": {
+        "urdf_path": r"C:\Users\jonas\BARC_NDI\pointcloudcpp\abbIrb120.urdf", #Can adjust path as needed (probably should make it relative with permanant location)
         "elbow_singularity": -1.34,  # -76.9 degrees
         "wrist_singularity": 0.0,
         "shoulder_front_hint": 0.0,  # Reaching Forward (normal)
@@ -21,6 +23,7 @@ ROBOT_PROFILES = {
     },
 
     "ur5": {
+        "urdf_path": r"C:\Users\jonas\BARC_NDI\pointcloudcpp\ur5.urdf",
         "elbow_singularity": 0.0,    # Straight line
         "wrist_singularity": 0.0,
         "shoulder_front_hint": 0,   # Reaching Forward
@@ -52,28 +55,33 @@ def worker_process(chunk_indices, chunk_points, chunk_normals, init_kwards, keys
 
 class RobotReachability:
     
-    def __init__(self, num_points, urdf_path, mesh_path, mesh_position=[0,0.2,0], 
+    def __init__(self, num_points, mesh_path, mesh_position=[0,0.2,0], 
                  mesh_orientation=[0,0,0], base_position=[0,0,0], robot_name="abb_irb120",
-                 connection_mode=p.GUI, sample_points=True, shared_mesh_path=None):
+                 connection_mode=p.GUI, sample_points=True, shared_mesh_path=None, ik_mode="numerical"):
         
+        # Load robot profile
+        if robot_name not in ROBOT_PROFILES:
+            raise ValueError(f"Unsupported robot '{robot_name}'. Available profiles: {list(ROBOT_PROFILES.keys())}")
+        self.profile = ROBOT_PROFILES[robot_name]  
+        if sample_points: print("Loaded profile for", robot_name)   
+
         #save kwagrs for worker processes
-        self.urdf_path=urdf_path
+        self.urdf_path=self.profile['urdf_path']
         self.mesh_path=mesh_path
         self.mesh_position=mesh_position
         self.mesh_orientation=mesh_orientation
         self.base_position=base_position
         self.robot_name=robot_name
         self.shared_mesh_path = shared_mesh_path
-        
+        self.ik_mode=ik_mode
+
+        #self.ur5_kin=UR5Kinematics() if (ik_mode=="analytical" and robot_name=="ur5") else None
+
         self.num_processes=1
         self.signatures=[]
         self.cell_ids=[]
 
-        # Load robot profile
-        if robot_name not in ROBOT_PROFILES:
-            raise ValueError(f"Unsupported robot '{robot_name}'. Available profiles: {list(ROBOT_PROFILES.keys())}")
-        self.profile = ROBOT_PROFILES[robot_name]  
-        if sample_points: print("Loaded profile for", robot_name)    
+ 
 
         #Setup PyBullet
         self.client=p.connect(connection_mode)
@@ -81,7 +89,7 @@ class RobotReachability:
         p.setGravity(0,0,-9.8)
         
         #Load Robot
-        self.robot_id = p.loadURDF(urdf_path, basePosition=base_position, useFixedBase=True)
+        self.robot_id = p.loadURDF(self.urdf_path, basePosition=base_position, useFixedBase=True)
         self.num_joints = p.getNumJoints(self.robot_id)        
         self.ee_index= -1
         self.movable_joints = [] 
@@ -304,24 +312,17 @@ class RobotReachability:
 
         target_orient = self.align_vector_to_normal(-target_normal)
 
-        # 3. Run IK with the Limits (The Cage)
-        joint_poses = p.calculateInverseKinematics(
-            self.robot_id,
-            self.ee_index,
-            target_pos,
-            target_orient,
-            lowerLimits=ll,    # <--- Enforces all joint limits
-            upperLimits=ul,    # <--- Enforces all joint limits
-            jointRanges=jr,
-            restPoses=rp,
-            maxNumIterations=200, 
-            residualThreshold=1e-3
-        )
+        # Call router for IK solver
+        joint_poses = self.solve_ik(target_pos, target_orient, seed_conf, ll, ul, jr, rp)
+        if joint_poses is None:
+            return False, f"IK Failed / Unreachable in {seed_name}"   
 
-        all_joint_positions=[]
+        #all_joint_positions=[]
         for i, joint_id in enumerate(self.movable_joints):
             p.resetJointState(self.robot_id, joint_id, joint_poses[i])
-            all_joint_positions.append(joint_poses[i])
+            #all_joint_positions.append(joint_poses[i])
+        
+        #input(f"PAUSED: Inspecting seed '{seed_name}'. Press Enter in the terminal to continue...")    
 
         #quality=self.check_manipulability(all_joint_positions)
         actual_pos = p.getLinkState(self.robot_id, self.ee_index)[4]
@@ -332,6 +333,46 @@ class RobotReachability:
         if is_collision:
             return False, "Collision"
         return True, "Success"
+
+    def solve_ik(self, target_pos, target_orient, seed_conf, ll, ul, jr, rp):
+        # #Route IK requests to analytical solver or PyBullet's DLS
+        # if self.ik_mode=="analytical" and self.ur5_kin is not None:
+        #     #Handle potential tool offsets (0 for bare flange)
+        #     tcp_pos_offset = [0.0, 0.0, 0.0] 
+        #     tcp_ori_offset = p.getQuaternionFromEuler([0,np.pi/2,0])
+        #     inv_tcp_pos, inv_tcp_ori = p.invertTransform(tcp_pos_offset, tcp_ori_offset)
+        #     link6_pos, link6_ori = p.multiplyTransforms(target_pos, target_orient, inv_tcp_pos, inv_tcp_ori)
+
+        #     rot_matrix=np.array(p.getMatrixFromQuaternion(link6_ori)).reshape(3,3)
+        #     T_target = np.eye(4)
+        #     T_target[:3,:3]=rot_matrix
+        #     T_target[:3,3] = link6_pos
+
+        #     #Calculate analytical solutions
+        #     joint_solutions=self.ur5_kin.inverse(T_target)
+        #     #Run through joint limits
+        #     best_sol = None
+        #     min_dist = float('inf')
+            
+        #     for sol in joint_solutions:
+        #         is_valid = True
+        #         for i in range(6):
+        #             if sol[i] < ll[i] or sol[i] > ul[i]:
+        #                 is_valid = False; break
+                
+        #         if is_valid:
+        #             dist = np.linalg.norm(np.array(sol) - np.array(seed_conf))
+        #             if dist < min_dist:
+        #                 min_dist = dist
+        #                 best_sol = sol
+        #     return best_sol
+        
+        #PyBullet Numerical Solver Fallback
+        return p.calculateInverseKinematics(
+            self.robot_id, self.ee_index, target_pos, target_orient,
+            lowerLimits=ll, upperLimits=ul, jointRanges=jr, restPoses=rp,
+            maxNumIterations=150, residualThreshold=1e-3
+        )
 
     def run_parallel_analysis(self, wrist_only=False, num_processes=None):
         if num_processes is None:
@@ -360,13 +401,13 @@ class RobotReachability:
 
         init_kwargs={
             'num_points': 0,
-            'urdf_path': self.urdf_path,
             'mesh_path': self.mesh_path,
             'mesh_position': self.mesh_position,
             'mesh_orientation': self.mesh_orientation,
             'base_position': self.base_position,
             'robot_name': self.robot_name,
-            'shared_mesh_path': self.shared_mesh_path
+            'shared_mesh_path': self.shared_mesh_path,
+            'ik_mode': self.ik_mode
         }
         
         tasks=[]
@@ -415,7 +456,7 @@ class RobotReachability:
         boundary_indices = set()
         distances, indices = tree.query(self.points, k=6) #check 5 nearest neighbors (+self))
         for i, neighbors in enumerate(indices):
-            my_sig = self.signatures[i] #get valid configs for neighboring poitns
+            my_sig = self.signatures[i] #get valid configs for neighboring points
             for n_idx in neighbors[1:]:
                 if self.signatures[n_idx] != my_sig:
                     boundary_indices.add(i)
@@ -463,13 +504,13 @@ class RobotReachability:
 
             init_kwargs={
                 'num_points': 0,
-                'urdf_path': self.urdf_path,
                 'mesh_path': self.mesh_path,
                 'mesh_position': self.mesh_position,
                 'mesh_orientation': self.mesh_orientation,
                 'base_position': self.base_position,
                 'robot_name': self.robot_name,
-                'shared_mesh_path': self.shared_mesh_path
+                'shared_mesh_path': self.shared_mesh_path,
+                'ik_mode': self.ik_mode
             }
             
             tasks=[]
@@ -490,7 +531,7 @@ class RobotReachability:
         self.normals = np.vstack((self.normals, new_normals))
         self.signatures.extend(new_signatures)
         
-        self.pcd = o3d.gemometry.PointCloud()
+        self.pcd = o3d.geometry.PointCloud()
         self.pcd.points = o3d.utility.Vector3dVector(self.points)
         self.pcd.normals = o3d.utility.Vector3dVector(self.normals)
         print(f"Refinment complete. Total resolution is now {len(self.points)} points")
@@ -578,7 +619,10 @@ class RobotReachability:
         #colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#FFA500', '#800080']
         unique_cells = np.unique(self.cell_ids)
         keys= list(self.seeds.keys())
-        palette=pc.sample_colorscale("Turbo", len(unique_cells))
+        if len(unique_cells)>1:
+            palette=pc.sample_colorscale("Turbo", len(unique_cells))
+        else:
+            palette=['rgb(17, 157, 255)']
 
         for i, cell_id in enumerate(unique_cells):
             if cell_id == -1:
@@ -640,26 +684,24 @@ class RobotReachability:
 if __name__ == "__main__":
     s=time.time()
     multiprocessing.freeze_support()
-
-    abb_urdf_file = r"C:\Users\jonas\BARC_NDI\pointcloudcpp\abbIrb120.urdf" 
-    ur_urdf_file=r"C:\Users\jonas\BARC_NDI\pointcloudcpp\ur5.urdf"
     mesh_file = r"C:\Users\jonas\BARC_NDI\pointcloudcpp\plane_segments\Airfoil_Surface_example.stl"
     
     # Placement: 0.5m forward, 0.2m up. Rotated upright.
     part_pos = [0.5, 0, 0.3] 
     part_euler = [0, 1.57, 3.14] 
-    num_points= 5000 #1000
-
-    segmenter = RobotReachability(num_points, abb_urdf_file, mesh_file, mesh_position=part_pos, mesh_orientation=part_euler)
+    num_points= 5000 #5000
+    chosen_solver="numerical"
+    rob="abb_irb120" # or "ur5"
+    segmenter = RobotReachability(num_points, mesh_file, mesh_position=part_pos, mesh_orientation=part_euler, robot_name=rob, ik_mode=chosen_solver)
     
     # Reachability Check
     wrist_only=False
     #segmenter.run_analysis(wrist_only)
-    segmenter.run_parallel_analysis(wrist_only)
+    segmenter.run_parallel_analysis(wrist_only=False)
     #if wrist_only:
     #    segmenter.visualize_signatures()
     
-    #segmenter.refine_boundaries(total_dense_points=15000, boundary_radius=0.05, wrist_only=wrist_only)
+    segmenter.refine_boundaries(total_dense_points=15000, boundary_radius=0.05, wrist_only=wrist_only)
 
     # Cell Formation (Radius = 5cm neighbor search)
     segmenter.segment_into_cells(radius=0.05)
