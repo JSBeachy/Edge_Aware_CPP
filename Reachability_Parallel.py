@@ -39,7 +39,6 @@ def worker_process(chunk_indices, chunk_points, chunk_normals, init_kwards, keys
     init_kwards["connection_mode"] = p.DIRECT
     init_kwards["sample_points"] = False
     local_env = RobotReachability(**init_kwards)
-    local_env.generate_all_seeds()
     results=[]
     for i in range(len(chunk_points)):
         pt = chunk_points[i]
@@ -80,8 +79,6 @@ class RobotReachability:
         self.num_processes=1
         self.signatures=[]
         self.cell_ids=[]
-
- 
 
         #Setup PyBullet
         self.client=p.connect(connection_mode)
