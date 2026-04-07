@@ -147,12 +147,8 @@ class AppWindow:
         self._settings_panel = gui.Vert(
             0, gui.Margins(0.25 * self.em, 0.25 * self.em, 0.25 * self.em, 0.25 * self.em))
     
-        ############## Advanced Settings Bar ############################
-        self._view_settings_dialog = None
-        self._lighting_settings_dialog = None
-        self._material_settings_dialog = None
 
-        #################################################################
+        ################# Side Bar ######################
         #Open File Button
         self._open_button = gui.Button("Open File")
         self._open_button.set_on_clicked(self._on_menu_open)
@@ -383,6 +379,15 @@ class AppWindow:
     ####################################################################
 
     def _on_menu_open(self):
+
+        original_wd = os.getcwd()
+        target_folder = "plane_segments"
+        target_path = os.path.join(original_wd, target_folder)
+
+        # Temporarily change the CWD to the target folder if it exists
+        if os.path.isdir(target_path):
+            os.chdir(target_path)
+
         dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose file to load", self.window.theme)
         dlg.add_filter(
             ".ply .stl .fbx .obj .off .gltf .glb",
@@ -396,6 +401,8 @@ class AppWindow:
         dlg.set_on_cancel(lambda: self.window.close_dialog())
         dlg.set_on_done(self._on_load_dialog_done)
         self.window.show_dialog(dlg)
+
+        os.chdir(original_wd)
 
     def _on_load_dialog_done(self, filename):
         self.window.close_dialog()
@@ -693,7 +700,7 @@ class AppWindow:
             self._update_corner_visualization()
 
     def _on_confirm_corners(self):
-        if len(self.corner_indices)<2:
+        if len(self.corner_indices) < 2:
             self.window.show_message_box("Error","Please select at least 2 corners")
             return
         #print(f"Corners confirmed at indices: {sorted(self.corner_indices)}")

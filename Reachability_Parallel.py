@@ -39,15 +39,18 @@ def worker_process(chunk_indices, chunk_points, chunk_normals, init_kwards, keys
     init_kwards["connection_mode"] = p.DIRECT
     init_kwards["sample_points"] = False
     local_env = RobotReachability(**init_kwards)
+    local_env.generate_all_seeds()
     results=[]
     for i in range(len(chunk_points)):
         pt = chunk_points[i]
         nm = chunk_normals[i]
         res=[]
+        res_man=[]
         for key in keys:
-            success, msg = local_env.check_reachability(pt,nm, key, wrist_only)
+            success, msg, manip = local_env.check_reachability(pt,nm, key, wrist_only)
             res.append(success)
-        results.append((chunk_indices[i], tuple(res)))
+            res_man.append(manip)
+        results.append((chunk_indices[i], tuple(res), tuple(res_man)))
 
     p.disconnect(local_env.client)
     return results
@@ -219,7 +222,7 @@ class RobotReachability:
         print(f"Distance Culling: {len(self.points)-np.sum(mask)} points skipped due to being completely unreachable")
         return mask
     
-    def check_manipulability(self, joint_positions): #TODO: Need to integrate!
+    def check_manipulability(self, joint_positions): 
         #Calculate Yoshikawa manipulability Index, lower values indicate proximity to singularity
         jac_t, jac_r = p.calculateJacobian(
             self.robot_id, 
@@ -312,7 +315,7 @@ class RobotReachability:
         # Call router for IK solver
         joint_poses = self.solve_ik(target_pos, target_orient, seed_conf, ll, ul, jr, rp)
         if joint_poses is None:
-            return False, f"IK Failed / Unreachable in {seed_name}"   
+            return False, f"IK Failed / Unreachable in {seed_name}", 0.0   
 
         #all_joint_positions=[]
         for i, joint_id in enumerate(self.movable_joints):
@@ -325,11 +328,12 @@ class RobotReachability:
         actual_pos = p.getLinkState(self.robot_id, self.ee_index)[4]
         dist = np.linalg.norm(np.array(actual_pos) - np.array(target_pos))
         if dist > 0.01: 
-            return False, f"Unreachable in {seed_name} ({dist:.3f}m)"
+            return False, f"Unreachable in {seed_name} ({dist:.3f}m)", 0.0
         is_collision, _ = self.check_collision()
         if is_collision:
-            return False, "Collision"
-        return True, "Success"
+            return False, "Collision", 0.0
+        manipulability = self.check_manipulability(joint_poses)
+        return True, "Success", manipulability
 
     def solve_ik(self, target_pos, target_orient, seed_conf, ll, ul, jr, rp):
         # #Route IK requests to analytical solver or PyBullet's DLS
@@ -417,9 +421,11 @@ class RobotReachability:
             results= pool.starmap(worker_process, tasks)
             
         self.signatures = [tuple([False]*len(keys))]*len(self.points)
+        self.manipulabilities= [tuple([0.0]*len(keys))]*len(self.points)
         for worker_res in results:
-            for original_idx,sig in worker_res:
+            for original_idx,sig, man in worker_res:
                 self.signatures[original_idx]=sig
+                self.manipulabilities[original_idx]=man
 
         print(f"Parallel analysis complete in {time.time()-start_time:.2f} seconds")
 
@@ -427,6 +433,7 @@ class RobotReachability:
         self.num_processes=1
         self.generate_all_seeds()
         self.signatures=[]
+        self.manipulabilities=[]
         keys = list(self.seeds.keys())
         if wrist_only: #Only Keep 1 wrist up and 1 wrist down seed, and don't check elbow/sholder joint limits 
             keys = keys[:2] 
@@ -438,10 +445,13 @@ class RobotReachability:
             pt = self.points[i]
             nm = self.normals[i]
             res=[]
+            res_man=[]
             for key in keys:
-                result, msg = self.check_reachability(pt, nm, key, wrist_only)
+                result, msg, man = self.check_reachability(pt, nm, key, wrist_only)
                 res.append(result)
+                res_man.append(man)
             self.signatures.append(tuple(res))
+            self.manipulabilities.append(tuple(res_man))
         print(f"Analysis complete in {time.time()-start_time:.2f} seconds")
 
     def refine_boundaries(self, total_dense_points=10000, boundary_radius=0.04, wrist_only=False, num_processes=None):
@@ -482,6 +492,7 @@ class RobotReachability:
         valid_new_points=new_points
         valid_new_normals=new_normals
         new_signatures = [tuple([False]*len(keys))]*len(new_points)
+        new_manipulabilities = [tuple([0.0]*len(keys))]*len(new_points)
         start_time = time.time()
         if num_processes <=1:
             print(f"Running single-core evaluation on {len(new_points)} points")
@@ -519,14 +530,16 @@ class RobotReachability:
                 results= pool.starmap(worker_process, tasks)
                 
             for worker_res in results:
-                for original_idx,sig in worker_res:
+                for original_idx,sig, man in worker_res:
                     new_signatures[original_idx]=sig
+                    new_manipulabilities[original_idx]=man
             
         print(f"Boundary refinement complete in {time.time()-start_time:.2f} seconds")
         #Merge data
         self.points = np.vstack((self.points, new_points))
         self.normals = np.vstack((self.normals, new_normals))
         self.signatures.extend(new_signatures)
+        self.manipulabilities.extend(new_manipulabilities)
         
         self.pcd = o3d.geometry.PointCloud()
         self.pcd.points = o3d.utility.Vector3dVector(self.points)
@@ -572,6 +585,176 @@ class RobotReachability:
 
             current_cell_id +=1
         print(f"Segmentation complete. Found {current_cell_id+1} unique cells")
+
+    def resolve_overlapping_greedy_smooth(self, radius=0.5, smoothing_iterations=5):
+        print(f"\n--- Resolving Multi-Config Cells (Greedy + Smooth) ---")
+        start_time = time.time()
+
+        # 1. Build Graph
+        tree = cKDTree(self.points)
+        # 2. Identify Anchors regions and multi-config regions
+        self.labels = -1 * np.ones(len(self.points), dtype=int)
+        locked = np.zeros(len(self.points), dtype=bool)
+
+        anchor_count = 0
+        overlap_count = 0
+        for i in range(len(self.points)):
+            sig = self.signatures[i]
+            valid_configs = sum(sig)
+
+            if valid_configs == 0:
+                continue # Unreachable
+            elif valid_configs == 1:
+                # Anchor Point: Locked
+                self.labels[i] = sig.index(True)
+                locked[i] = True
+                anchor_count += 1
+            else:
+                #Multi-region points: Greedy initialization (highest manipulability)
+                valid_manips = [m if v else -1 for m, v in zip(self.manipulabilities[i], sig)]
+                self.labels[i] = np.argmax(valid_manips)
+                locked[i] = False
+                overlap_count += 1
+        
+        print(f"  Found {anchor_count} Anchors (Locked) and {overlap_count} Overlaps (Unlocked).")
+
+        # 3. Majority-Vote Smoothing (Only affects unlocked points)
+        for iteration in range(smoothing_iterations):
+            flips = 0
+            new_labels = np.copy(self.labels)
+
+            for i in range(len(self.points)):
+                if locked[i] or self.labels[i] == -1:
+                    continue # Cannot change locked or unreachable points
+
+                # Find neighbors
+                neighbors = tree.query_ball_point(self.points[i], r=radius)
+                if len(neighbors) <= 1: continue
+
+                # Tally neighbor labels
+                label_counts = {}
+                for n in neighbors:
+                    lbl = self.labels[n]
+                    if lbl != -1:
+                        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+
+                if not label_counts: continue
+
+                # Find most popular neighbor configuration
+                best_label = max(label_counts, key=label_counts.get)
+
+                # Flip if the crowd disagrees AND the point can physically achieve it
+                if best_label != self.labels[i] and self.signatures[i][best_label]:
+                    new_labels[i] = best_label
+                    flips += 1
+
+            self.labels = new_labels
+            print(f"  Smoothing Iteration {iteration+1}: {flips} points flipped.")
+            if flips == 0:
+                break # Reached equilibrium
+
+        self.cell_ids = self.labels
+        print(f"Resolution complete in {time.time()-start_time:.2f}s.")
+    
+    def resolve_overlapping_regions(self, radius=0.05, alpha=1.0, beta=2.5, iterations=150000):
+        print(f"\n--- Resolving Multi-Configuration Cells (alpha={alpha}, beta={beta}) ---")
+        start_time = time.time()
+        
+        # 1. Build Graph
+        tree = cKDTree(self.points)
+        edges = tree.query_pairs(r=radius)
+        
+        neighbors = {i: [] for i in range(len(self.points))}
+        for i, j in edges:
+            neighbors[i].append(j)
+            neighbors[j].append(i)
+
+        # 2. Identify Anchors vs. Overlaps
+        self.labels = -1 * np.ones(len(self.points), dtype=int)
+        locked = np.zeros(len(self.points), dtype=bool)
+        
+        anchor_count = 0
+        overlap_count = 0
+
+        for i in range(len(self.points)):
+            sig = self.signatures[i]
+            valid_configs = sum(sig)
+
+            if valid_configs == 0:
+                continue # Unreachable
+                
+            elif valid_configs == 1:
+                # Anchor Point: Lock it to its only valid configuration
+                self.labels[i] = sig.index(True)
+                locked[i] = True
+                anchor_count += 1
+                
+            else:
+                # Overlap Point: Initialize with best manipulability (Greedy)
+                valid_manips = [m if v else -1 for m, v in zip(self.manipulabilities[i], sig)]
+                self.labels[i] = np.argmax(valid_manips)
+                locked[i] = False
+                overlap_count += 1
+
+        print(f"  Found {anchor_count} Anchor points (Locked) and {overlap_count} Overlap points (Unlocked).")
+
+        # 3. Initialize Boundary List (Only UNLOCKED points can be processed)
+        boundary_list = []
+        for i in range(len(self.points)):
+            if locked[i] or self.labels[i] == -1: 
+                continue # Skip locked or unreachable points
+            
+            # If an unlocked point touches a point with a different label, it's a boundary
+            for n in neighbors[i]:
+                if self.labels[n] != -1 and self.labels[n] != self.labels[i]:
+                    boundary_list.append(i)
+                    break # Only need to add it once
+                    
+        # 4. The MRF Optimization Loop
+        flips = 0
+        for _ in range(iterations):
+            if not boundary_list:
+                break # Reached perfect equilibrium
+                
+            # Pick a random unlocked boundary point
+            idx = boundary_list[np.random.choice(len(boundary_list))]
+            old_label = self.labels[idx]
+            
+            # What labels are surrounding this point?
+            neighbor_labels = [self.labels[n] for n in neighbors[idx] if self.labels[n] != -1]
+            if not neighbor_labels: continue
+            
+            # Propose a flip
+            new_label = np.random.choice(neighbor_labels)
+            if new_label == old_label: continue
+            
+            # Ensure the point can physically achieve the proposed label
+            if not self.signatures[idx][new_label]: continue
+                
+            # Delta Energy Calculation
+            delta_data = self.manipulabilities[idx][old_label] - self.manipulabilities[idx][new_label]
+            
+            matches_old = sum(1 for n in neighbors[idx] if self.labels[n] == old_label)
+            matches_new = sum(1 for n in neighbors[idx] if self.labels[n] == new_label)
+            delta_smooth = matches_old - matches_new 
+            
+            delta_E = (alpha * delta_data) + (beta * delta_smooth)
+            
+            # Accept flip
+            if delta_E < 0:
+                self.labels[idx] = new_label
+                flips += 1
+                
+                # Add affected UNLOCKED neighbors to the boundary check list
+                for n in neighbors[idx]:
+                    if not locked[n] and self.labels[n] != -1:
+                        boundary_list.append(n)
+        
+        # Override cell IDs with our resolved configuration labels
+        self.cell_ids = self.labels
+        
+        print(f"Resolution complete in {time.time()-start_time:.2f}s.")
+        print(f"Performed {flips} flips to merge overlapping cells into anchor regions.")
 
     def map_cells_to_mesh(self, distance_threshold=0.05):
         mesh_vertices = np.asarray(self.mesh.vertices)
@@ -655,6 +838,78 @@ class RobotReachability:
         
         fig.write_html(filename)
 
+    def visualize_manipulability_plotly(self, filename="manipulability_map.html"):
+            import plotly.graph_objects as go
+
+            fig = go.Figure()
+            keys = list(self.seeds.keys())
+            
+            # Add the base mesh as background
+            v = np.asarray(self.mesh.vertices)
+            t = np.asarray(self.mesh.triangles)
+            fig.add_trace(go.Mesh3d(
+                x=v[:,0], y=v[:,1], z=v[:,2], 
+                i=t[:,0], j=t[:,1], k=t[:,2], 
+                color='lightgrey', opacity=0.3, name='Part', hoverinfo='skip'
+            ))
+
+            buttons = []
+            
+            #Add a point cloud trace for every configuration
+            for i, key in enumerate(keys):
+                # Extract scores and reachability specifically for this config
+                manip_scores = [man[i] for man in self.manipulabilities]
+                reachable_mask = [sig[i] for sig in self.signatures]
+                
+                # Filter to only show points that the robot can actually reach in this config
+                pts = self.points[reachable_mask]
+                scores = np.array(manip_scores)[reachable_mask]
+                
+                visible = (i == 0) # Make only the first configuration visible on load
+                
+                fig.add_trace(go.Scatter3d(
+                    x=pts[:,0], y=pts[:,1], z=pts[:,2],
+                    mode='markers',
+                    marker=dict(
+                        size=4,
+                        color=scores,
+                        colorscale='Viridis', # Color gradient for manipulability
+                        colorbar=dict(title="Yoshikawa Index", x=-0.1),
+                        showscale=True
+                    ),
+                    name=key,
+                    visible=visible,
+                    text=[f"Config: {key}<br>Manipulability: {s:.4f}" for s in scores],
+                    hoverinfo='text'
+                ))
+                
+                #Define the dropdown
+                # Trace 0 is the Mesh (always True). Traces 1 to N are the point clouds.
+                visibility = [True] + [False] * len(keys)
+                visibility[i + 1] = True 
+                
+                buttons.append(dict(
+                    label=key,
+                    method="update",
+                    args=[{"visible": visibility},
+                        {"title": f"Manipulability for Configuration: {key}"}]
+                ))
+
+            #Attach the dropdown menu to the layout
+            fig.update_layout(
+                updatemenus=[dict(
+                    active=0,
+                    buttons=buttons,
+                    x=1.0, y=1.0, # Position of the dropdown
+                    xanchor="left", yanchor="top"
+                )],
+                title=f"Manipulability for Configuration: {keys[0]}",
+                scene=dict(aspectmode='data')
+            )
+            
+            fig.write_html(filename)
+            print(f"Saved manipulability UI to {filename}")
+
     def visualize_solid_mesh(self):
             print("Visualizing solid mapped mesh...")
             num_cells = np.max(self.cell_ids) + 1
@@ -703,11 +958,19 @@ if __name__ == "__main__":
     # Cell Formation (Radius = 5cm neighbor search)
     segmenter.segment_into_cells(radius=0.05)
     segmenter.map_cells_to_mesh(distance_threshold=0.05)
+    segmenter.visualize_result()
+    # --- Test A: The Simple Smooth ---
+    #segmenter.resolve_overlapping_greedy_smooth(radius=0.05, smoothing_iterations=5)
+    # --- Test B: The Energy Optimization ---
+    segmenter.resolve_overlapping_regions(radius=0.05, alpha=1.0, beta=2.5)
+
+    segmenter.map_cells_to_mesh(distance_threshold=0.05)
 
     print(f"Total execution time: {time.time()-s:.2f} seconds")
     # 3. View Results
     segmenter.visualize_result()
     segmenter.visualize_with_plotly("my_robot_cells.html")
+    segmenter.visualize_manipulability_plotly("manipulability_map.html")
     segmenter.visualize_solid_mesh()
     
     segmenter.cleanup()

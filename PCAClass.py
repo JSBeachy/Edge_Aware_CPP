@@ -27,11 +27,11 @@ class PCABounding:
         self.mesh.compute_vertex_normals()
         self.mesh.paint_uniform_color([0.5, 0.5, 0.5])
         self.points=np.asarray(self.mesh.vertices)
-        noise_std_dev = 1e-4  # A small value, adjust if needed
+        noise_std_dev = 1e-3  # A small value, adjust if needed
         z_noise = np.random.normal(loc=0.0, scale=noise_std_dev, size=self.points.shape[0])
         self.points[:, 2] += z_noise
         self.kd_tree=KDTree(self.points)
-        #self.bounding_box=self.mesh.get_oriented_bounding_box()
+        self.bounding_box=self.mesh.get_oriented_bounding_box()
         #TODO: add custom PCA axis-aligned bounding_box
         self.bounding_box=self.mesh.get_minimal_oriented_bounding_box()
         self.bounding_box.color=([0,0,0])
@@ -162,25 +162,25 @@ class Best_Fit_CPP(PCABounding):
         dps=self.dot_product(self.ordered_edge_points2D)
         min_indices = np.argsort(np.abs(dps))[:4]
 
-        #Assuming 4 corners, can change to threshold here, prompt users for corners then
-        #mask = np.abs(dps) < threshold
-        #theshold_dps=ordered[mask]
-
-        # Nose-cone Work
-        #for index,i in enumerate(self.ordered_edge_points2D):
-        #    print(index,i)
-        #min_indices=[0,90,189]
-        # add in after segment_len
-        #top_two_indices = np.argsort(segment_len)[:2][::-1]
+        #Use the user-supplied corner points if they exist
         if alt_corner_indicies is not None:
             min_indices=alt_corner_indicies
 
         self.corner_points2D=self.ordered_edge_points2D[min_indices]
         self.all_edges=self.split_perimeter(self.ordered_edge_points, min_indices)
         segment_len=np.array([self.curvilinear_distance(segment) for segment in self.all_edges])
-        #Not aligned with principal axis, but rather length of edge
+        #Not aligned with principal axis, but rather length of edge - may not be permanent solution 
+
+        num_edges= len(self.all_edges)
+        if num_edges==1:
+            print("Cannot select two adjacent points as corners")
+            return
         top_two_indices = np.argsort(segment_len)[-2:][::-1]
-        self.max_index_edge_len=segment_len[-3]
+        if num_edges >= 3:  
+            self.max_index_edge_len=segment_len[-3]
+        else:
+            self.max_index_edge_len=np.max(segment_len) # TODO: fix this bad solution 
+        
         self.edges=[self.all_edges[top_two_indices[0]], self.all_edges[top_two_indices[1]][::-1]]
         return
 

@@ -22,11 +22,11 @@ start=time.time()
 #segment=Best_Fit_CPP("plane_segments\Curvy.stl")
 #segment=Best_Fit_CPP("plane_segments\surjective_xz.stl")
 #segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example.stl")
-segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
+#segment=Best_Fit_CPP("plane_segments\Airfoil_Surface_example_Hypermeshed.stl")
 #segment=Best_Fit_CPP(r"C:\Users\jonas\NDIBARC\pointcloudcpp\plane_segments\Nose_Cone.stl")
 #segment=Best_Fit_CPP("plane_segments\Hat_Stringer.stl")
 #segment=Best_Fit_CPP(r"plane_segments\trap_mesh2.stl")
-#segment=Best_Fit_CPP(r"plane_segments\Fake_Real_Mesh.stl")
+segment=Best_Fit_CPP(r"plane_segments\Trap_Mesh_Fixed.stl")
 segment.boundary_edge_calculations()
 
 # Create a visualization object
@@ -92,7 +92,7 @@ segment.edge1_CP=segment.edge1_CP - segment.offset_dir*shift_vec
 segment.edge2_CP=segment.edge2_CP + segment.offset_dir*shift_vec
 
 #Interpolate Bézier Curves
-passes,colors=segment.line_interpolator(5)
+passes,colors=segment.line_interpolator(1)
 
 #Add 10 mm to each point's z-coordinate in the trial lines; TODO: could add normal of closes point via kd-tree
 adjusted_lines = np.vstack(passes)+ np.array([0, 0, 10])
